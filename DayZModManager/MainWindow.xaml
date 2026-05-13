@@ -35,6 +35,8 @@
                                 <CheckBox x:Name="LocalLookupCheckBox" Content="Lookup titles" Margin="12,0,0,0"/>
                             </DockPanel>
 
+                            <CheckBox x:Name="LocalShowInstalledCheckBox" Content="Show installed status" IsChecked="True" Margin="0,6,0,0"/>
+
                             <TextBlock Text="Steam Web API key (optional if baked-in key is ok)" Margin="0,10,0,4" />
                             <TextBox x:Name="LocalApiKeyTextBox" Height="26" VerticalContentAlignment="Center"/>
 
@@ -89,6 +91,17 @@
                                 <Button Content="Search" Width="90" Height="28" Margin="10,0,0,0" Click="OnSearchWorkshop"/>
                             </DockPanel>
 
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBlock Text="Sort:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="WorkshopSortComboBox" Width="160" SelectedIndex="0">
+                                    <ComboBoxItem Content="Relevance (as returned)"/>
+                                    <ComboBoxItem Content="Title (A-Z)"/>
+                                    <ComboBoxItem Content="Title (Z-A)"/>
+                                    <ComboBoxItem Content="ID (asc)"/>
+                                </ComboBox>
+                                <CheckBox x:Name="HideInModsCheckBox" Content="Hide in mods.txt" Margin="14,0,0,0"/>
+                            </DockPanel>
+
                             <DockPanel Margin="0,8,0,0">
                                 <CheckBox x:Name="AutoAddDepsCheckBox" Content="Auto-add dependencies" IsChecked="True"/>
                             </DockPanel>
@@ -97,6 +110,10 @@
                                 <TextBlock Text="Steam Web API key" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBox x:Name="SearchApiKeyTextBox" Height="28" VerticalContentAlignment="Center"/>
                             </DockPanel>
+
+                            <TextBlock Text="Bulk add IDs (one per line)" Margin="0,12,0,6" FontWeight="SemiBold"/>
+                            <TextBox x:Name="BulkIdsTextBox" Height="90" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+                            <Button Content="Add Bulk to mods.txt" Height="32" Width="200" Margin="0,8,0,0" Click="OnAddBulk"/>
                         </StackPanel>
 
                         <ListBox x:Name="SearchResultsListBox" Grid.Row="1" SelectionMode="Single">
@@ -115,6 +132,7 @@
 
                         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
                             <Button Content="Add Selected to mods.txt" Height="34" Width="220" Click="OnAddSelected"/>
+                            <Button Content="Dependency tree" Height="34" Width="170" Margin="10,0,0,0" Click="OnShowDependencyTree"/>
                             <TextBlock x:Name="AddStatusTextBlock" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="#6E7884"/>
                         </StackPanel>
                     </Grid>
@@ -147,6 +165,7 @@
                         <TextBox x:Name="ModsRootTextBox" Width="520"/>
                         <Button Content="Browse" Margin="6,0,0,0" Width="90" Click="OnBrowseModsRoot"/>
                         <Button Content="Refresh" Margin="6,0,0,0" Width="90" Click="OnRefreshModFolders"/>
+                        <Button Content="Save settings" Margin="6,0,0,0" Width="130" Click="OnSaveSettings"/>
                     </StackPanel>
 
                     <Grid Grid.Row="1">
@@ -159,13 +178,41 @@
                             <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                                 <CheckBox x:Name="CombineAllCheckBox" Content="Combine all mods into one types.xml" IsChecked="True"/>
                                 <DockPanel Margin="0,6,0,0">
+                                    <TextBlock Text="Merge mode:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox x:Name="MergeModeComboBox" Width="190" SelectedIndex="0">
+                                        <ComboBoxItem Content="Dedupe-first (by name)"/>
+                                        <ComboBoxItem Content="Append (keep all)"/>
+                                        <ComboBoxItem Content="Dedupe-last (by name)"/>
+                                    </ComboBox>
+                                </DockPanel>
+                                <DockPanel Margin="0,6,0,0">
                                     <TextBlock Text="Output:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBox x:Name="CombineOutFileTextBox" Width="200" Text="types.xml"/>
                                 </DockPanel>
                                 <Button Content="Generate combined types.xml" Margin="0,10,0,0" Height="30" Click="OnGenerateCombinedTypes"/>
+                                <Button Content="Preview combined types.xml (dry-run)" Margin="0,8,0,0" Height="30" Click="OnPreviewCombinedTypes"/>
                             </StackPanel>
 
-                            <ListBox x:Name="ModFoldersListBox" SelectionMode="Single" SelectionChanged="OnModFolderSelected"/>
+                            <ListBox x:Name="ModFoldersListBox" SelectionMode="Single" SelectionChanged="OnModFolderSelected" DockPanel.Dock="Top"/>
+
+                            <Border DockPanel.Dock="Bottom" BorderBrush="#E6ECF5" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Background="White">
+                                <StackPanel>
+                                    <TextBlock Text="Profiles" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <DockPanel>
+                                        <TextBox x:Name="ProfileNameTextBox" Width="140" Text="default"/>
+                                        <Button Content="Export" Width="80" Margin="8,0,0,0" Click="OnExportProfile"/>
+                                        <Button Content="Import" Width="80" Margin="8,0,0,0" Click="OnImportProfile"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border DockPanel.Dock="Bottom" BorderBrush="#E6ECF5" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Background="White">
+                                <StackPanel>
+                                    <TextBlock Text="History (mods.txt)" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <ListBox x:Name="HistoryListBox" Height="90"/>
+                                    <Button Content="Refresh history" Margin="0,8,0,0" Height="28" Click="OnRefreshHistory"/>
+                                </StackPanel>
+                            </Border>
                         </DockPanel>
 
                         <TextBox x:Name="FolderDetailsTextBox" Grid.Column="1" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AcceptsReturn="True"/>
@@ -175,4 +222,3 @@
         </TabControl>
     </Grid>
 </Window>
-

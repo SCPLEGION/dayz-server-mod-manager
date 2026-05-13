@@ -16,3 +16,5 @@ DayZModManager/publish/
 # Generated server types
 types.xml
 types_test.xml
+/publish
+/DayZModManager/publish-singlefile
