@@ -14,6 +14,7 @@ public sealed class MainForm : Form
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
     private readonly TabPage _tabLocal = new("Local Mods");
     private readonly TabPage _tabAdd = new("Add to mods.txt");
+    private readonly TabPage _tabFolders = new("Mods Folders");
 
     // ---- Local tab controls ----
     private readonly TextBox _localFilePath = new() { Dock = DockStyle.Fill };
@@ -52,6 +53,17 @@ public sealed class MainForm : Form
     private readonly ConcurrentDictionary<ulong, string?> _titleCache = new();
     private readonly ConcurrentDictionary<ulong, List<ulong>> _depsCache = new();
 
+    // ---- Folders tab controls ----
+    private readonly TextBox _modsRootInput = new() { Dock = DockStyle.Top, Height = 24 };
+    private readonly Button _modsRootBrowse = new() { Text = "Browse..." };
+    private readonly Button _modsRootRefresh = new() { Text = "Refresh" };
+    private readonly ListBox _modFoldersList = new() { Dock = DockStyle.Left, Width = 260 };
+    private readonly TextBox _folderDetails = new() { Multiline = true, Dock = DockStyle.Fill, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
+
+    private readonly CheckBox _combineAllCheck = new() { Text = "Combine all mods into one types.xml", Checked = true, AutoSize = true };
+    private readonly TextBox _combineOutFileInput = new() { Dock = DockStyle.Top, Height = 24 };
+    private readonly Button _combineGenerateButton = new() { Text = "Generate combined types.xml" };
+
     public MainForm()
     {
         Text = "DayZ Mod Manager";
@@ -61,9 +73,11 @@ public sealed class MainForm : Form
         Controls.Add(_tabs);
         _tabs.TabPages.Add(_tabLocal);
         _tabs.TabPages.Add(_tabAdd);
+        _tabs.TabPages.Add(_tabFolders);
 
         BuildLocalTab();
         BuildAddTab();
+        BuildFoldersTab();
 
         Load += (_, _) =>
         {
@@ -76,6 +90,9 @@ public sealed class MainForm : Form
 
             _ = RefreshLocalAsync();
             _ = RefreshModsListAsync();
+
+            _modsRootInput.Text = Path.Combine(AppContext.BaseDirectory, "..");
+            _ = RefreshModFoldersAsync();
         };
     }
 
@@ -207,6 +224,183 @@ public sealed class MainForm : Form
         right.Controls.Add(_modsList, 0, 2);
 
         _modsList.SelectionMode = SelectionMode.One;
+    }
+
+    private void BuildFoldersTab()
+    {
+        var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(10) };
+        top.Controls.Add(new Label { Text = "Mods root:", AutoSize = true, Padding = new Padding(0, 6, 6, 0) });
+        _modsRootInput.Width = 520;
+        top.Controls.Add(_modsRootInput);
+        top.Controls.Add(_modsRootBrowse);
+        top.Controls.Add(_modsRootRefresh);
+
+        top.Controls.Add(_combineAllCheck);
+        _combineOutFileInput.Text = "types.xml";
+        top.Controls.Add(new Label { Text = "Output:", AutoSize = true, Padding = new Padding(10, 6, 0, 0) });
+        top.Controls.Add(_combineOutFileInput);
+        top.Controls.Add(_combineGenerateButton);
+
+        _modsRootBrowse.Click += async (_, _) =>
+        {
+            using var fbd = new FolderBrowserDialog { Description = "Select mods root directory" };
+            if (fbd.ShowDialog(this) == DialogResult.OK)
+            {
+                _modsRootInput.Text = fbd.SelectedPath;
+                await RefreshModFoldersAsync();
+            }
+        };
+
+        _modsRootRefresh.Click += async (_, _) => await RefreshModFoldersAsync();
+
+        _modFoldersList.SelectedIndexChanged += async (_, _) => await RefreshFolderDetailsAsync();
+        _folderDetails.Text = "Select a mod folder to see details.";
+
+        _tabFolders.Controls.Add(_folderDetails);
+        _tabFolders.Controls.Add(_modFoldersList);
+        _tabFolders.Controls.Add(top);
+
+        _combineAllCheck.CheckedChanged += (_, _) => UpdateCombineControls();
+        _combineGenerateButton.Click += async (_, _) => await GenerateCombinedTypesAsync();
+        UpdateCombineControls();
+    }
+
+    private void UpdateCombineControls()
+    {
+        var enabled = _combineAllCheck.Checked;
+        _combineOutFileInput.Enabled = enabled;
+        _combineGenerateButton.Enabled = enabled;
+    }
+
+    private async Task GenerateCombinedTypesAsync()
+    {
+        var root = _modsRootInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        {
+            _folderDetails.Text = "Invalid mods root directory.";
+            return;
+        }
+
+        var outVal = _combineOutFileInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(outVal))
+        {
+            _folderDetails.Text = "Please set output file path.";
+            return;
+        }
+
+        // If the user only typed a filename (e.g. types.xml), place it inside mods root.
+        var outFile = Path.IsPathRooted(outVal) ? outVal : Path.Combine(root, outVal);
+
+        _folderDetails.Text = "Generating combined types.xml...";
+        try
+        {
+            await Task.Run(() => TypesXmlGenerator.Generate(root, outFile));
+            _folderDetails.Text = $"Generated: {outFile}";
+        }
+        catch (Exception ex)
+        {
+            _folderDetails.Text = $"Generation failed: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshModFoldersAsync()
+    {
+        try
+        {
+            var root = _modsRootInput.Text.Trim();
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            {
+                _modFoldersList.Items.Clear();
+                _folderDetails.Text = "Invalid mods root directory.";
+                return;
+            }
+
+            _modFoldersList.Items.Clear();
+            _folderDetails.Text = "Loading folder info...";
+
+            var dirs = Directory.EnumerateDirectories(root)
+                .Select(d => new DirectoryInfo(d))
+                .Where(di => di.Name.Length > 0)
+                .OrderBy(di => di.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            foreach (var di in dirs)
+                _modFoldersList.Items.Add(di.Name);
+
+            if (_modFoldersList.Items.Count > 0)
+                await RefreshFolderDetailsAsync();
+            else
+                _folderDetails.Text = "No mod folders found under the selected root.";
+        }
+        catch (Exception ex)
+        {
+            _folderDetails.Text = ex.ToString();
+        }
+    }
+
+    private Task RefreshFolderDetailsAsync()
+    {
+        var selected = _modFoldersList.SelectedItem?.ToString();
+        if (string.IsNullOrWhiteSpace(selected))
+            return Task.CompletedTask;
+
+        var root = _modsRootInput.Text.Trim();
+        var modDir = Path.Combine(root, selected);
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"Mod folder: {selected}");
+        sb.AppendLine($"Path: {modDir}");
+
+        if (!Directory.Exists(modDir))
+        {
+            sb.AppendLine("Directory missing.");
+            _folderDetails.Text = sb.ToString();
+            return Task.CompletedTask;
+        }
+
+        // Many DayZ mod folders keep XMLs in nested folders (e.g. "XML & More" subtrees),
+        // so we search recursively but cap listings for speed.
+        const int maxTypesFilesToShow = 200;
+        const int maxOtherXmlToShow = 80;
+
+        var typesFiles = Directory.EnumerateFiles(modDir, "*types*.xml", SearchOption.AllDirectories)
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .Take(maxTypesFilesToShow)
+            .ToArray();
+
+        sb.AppendLine();
+        sb.AppendLine($"types.xml-related files (showing up to {maxTypesFilesToShow}):");
+        if (typesFiles.Length == 0)
+        {
+            sb.AppendLine("(none found under this folder)");
+        }
+        else
+        {
+            foreach (var f in typesFiles)
+            {
+                var fi = new FileInfo(f);
+                sb.AppendLine($"- {fi.Name} ({fi.Length / 1024.0:0.0} KB)");
+            }
+        }
+
+        var otherXmlFiles = Directory.EnumerateFiles(modDir, "*.xml", SearchOption.AllDirectories)
+            .Select(Path.GetFileName)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Take(maxOtherXmlToShow)
+            .ToArray()!;
+
+        sb.AppendLine();
+        sb.AppendLine($"Other XML files (sample, up to {maxOtherXmlToShow}):");
+        if (otherXmlFiles.Length == 0)
+            sb.AppendLine("(none found under this folder)");
+        else
+            foreach (var n in otherXmlFiles)
+                sb.AppendLine($"- {n}");
+
+        _folderDetails.Text = sb.ToString();
+        return Task.CompletedTask;
     }
 
     private void SearchResults_DrawItem(object? sender, DrawItemEventArgs e)

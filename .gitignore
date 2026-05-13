@@ -12,3 +12,7 @@ DayZModManager/publish/steam_oauth.json
 
 # Optional published output (keep if you want to commit the exe)
 DayZModManager/publish/
+
+# Generated server types
+types.xml
+types_test.xml
