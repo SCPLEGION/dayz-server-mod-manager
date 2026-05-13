@@ -1,0 +1,14 @@
+bin/
+obj/
+
+DayZModManager/bin/
+DayZModManager/obj/
+
+# Runtime file created/updated by the exe
+mods.txt
+DayZModManager/publish/mods.txt
+steam_oauth.json
+DayZModManager/publish/steam_oauth.json
+
+# Optional published output (keep if you want to commit the exe)
+DayZModManager/publish/
