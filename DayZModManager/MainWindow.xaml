@@ -1,0 +1,178 @@
+<Window x:Class="DayZModManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Title="DayZ Mod Manager"
+        Width="1200"
+        Height="900"
+        Background="#F8FAFC"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid Margin="12">
+        <TabControl>
+            <!-- Local Mods -->
+            <TabItem Header="Local Mods">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="330"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <DockPanel Grid.Column="0" LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                            <TextBlock Text="Local file (one Workshop ID per line)" Margin="0,0,0,6"/>
+
+                            <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                <TextBox x:Name="LocalFilePathTextBox" Height="26" VerticalContentAlignment="Center"/>
+                                <Button Content="Browse" DockPanel.Dock="Right" Width="80" Margin="6,0,0,0" Height="26" Click="OnBrowseLocalFile"/>
+                            </DockPanel>
+
+                            <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                <Button Content="Refresh" Width="90" Height="26" Click="OnRefreshLocal"/>
+                                <CheckBox x:Name="LocalLookupCheckBox" Content="Lookup titles" Margin="12,0,0,0"/>
+                            </DockPanel>
+
+                            <TextBlock Text="Steam Web API key (optional if baked-in key is ok)" Margin="0,10,0,4" />
+                            <TextBox x:Name="LocalApiKeyTextBox" Height="26" VerticalContentAlignment="Center"/>
+
+                            <Button Content="Remove Selected" Margin="0,10,0,0" Height="30" Click="OnRemoveSelected"/>
+                        </StackPanel>
+
+                        <TextBlock x:Name="LocalStatusTextBlock" DockPanel.Dock="Bottom" Margin="0,8,0,0" Foreground="#6E7884"/>
+
+                    </DockPanel>
+
+                    <Grid Grid.Column="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="34"/>
+                        </Grid.RowDefinitions>
+
+                        <ListBox x:Name="LocalIdsListBox" Grid.Row="0" SelectionMode="Single" />
+                        <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="4" Padding="10,8">
+                            <TextBlock x:Name="LocalFooterTextBlock" Foreground="#6E7884"/>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- Add to mods.txt -->
+            <TabItem Header="Add to mods.txt">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="330"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                            <TextBlock Text="Steam Workshop search" Margin="0,0,0,6" FontWeight="SemiBold"/>
+
+                            <DockPanel LastChildFill="True">
+                                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,12,0">
+                                    <TextBlock Text="appid" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="AppIdTextBox" Width="90" Text="221100"/>
+                                    <TextBlock Text="creator_appid" Margin="12,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBox x:Name="CreatorAppIdTextBox" Width="90" Text="221100"/>
+                                </StackPanel>
+
+                                <TextBox x:Name="SearchTextBox" Height="28" Margin="0,0,0,0" VerticalContentAlignment="Center"/>
+                                <Button Content="Search" Width="90" Height="28" Margin="10,0,0,0" Click="OnSearchWorkshop"/>
+                            </DockPanel>
+
+                            <DockPanel Margin="0,8,0,0">
+                                <CheckBox x:Name="AutoAddDepsCheckBox" Content="Auto-add dependencies" IsChecked="True"/>
+                            </DockPanel>
+
+                            <DockPanel Margin="0,8,0,0">
+                                <TextBlock Text="Steam Web API key" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="SearchApiKeyTextBox" Height="28" VerticalContentAlignment="Center"/>
+                            </DockPanel>
+                        </StackPanel>
+
+                        <ListBox x:Name="SearchResultsListBox" Grid.Row="1" SelectionMode="Single">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="White" CornerRadius="6" Padding="10" Margin="6" BorderBrush="#E6ECF5" BorderThickness="1">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Description}" Margin="0,6,0,0" Foreground="#6E7884" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding PublishedFileId}" FontSize="11" Foreground="#A0A8B5" Margin="0,8,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Add Selected to mods.txt" Height="34" Width="220" Click="OnAddSelected"/>
+                            <TextBlock x:Name="AddStatusTextBlock" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="#6E7884"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Right: mods.txt -->
+                    <DockPanel Grid.Column="1" LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock Text="{Binding ModsTxtLabel}" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <CheckBox x:Name="ModsLookupCheckBox" Content="Lookup titles in mods.txt" IsChecked="False" Margin="0,0,0,8"/>
+                            <TextBox x:Name="ModsApiKeyTextBox" Height="28" VerticalContentAlignment="Center" />
+                            <Button Content="Refresh" Margin="0,10,0,0" Height="28" Click="OnRefreshModsList"/>
+                        </StackPanel>
+
+                        <ListBox x:Name="ModsListBox" />
+                        <TextBlock x:Name="ModsStatusTextBlock" DockPanel.Dock="Bottom" Margin="0,8,0,0" Foreground="#6E7884"/>
+                    </DockPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Mods Folders -->
+            <TabItem Header="Mods Folders">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="Mods root" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox x:Name="ModsRootTextBox" Width="520"/>
+                        <Button Content="Browse" Margin="6,0,0,0" Width="90" Click="OnBrowseModsRoot"/>
+                        <Button Content="Refresh" Margin="6,0,0,0" Width="90" Click="OnRefreshModFolders"/>
+                    </StackPanel>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="260"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <DockPanel Grid.Column="0">
+                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                                <CheckBox x:Name="CombineAllCheckBox" Content="Combine all mods into one types.xml" IsChecked="True"/>
+                                <DockPanel Margin="0,6,0,0">
+                                    <TextBlock Text="Output:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox x:Name="CombineOutFileTextBox" Width="200" Text="types.xml"/>
+                                </DockPanel>
+                                <Button Content="Generate combined types.xml" Margin="0,10,0,0" Height="30" Click="OnGenerateCombinedTypes"/>
+                            </StackPanel>
+
+                            <ListBox x:Name="ModFoldersListBox" SelectionMode="Single" SelectionChanged="OnModFolderSelected"/>
+                        </DockPanel>
+
+                        <TextBox x:Name="FolderDetailsTextBox" Grid.Column="1" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AcceptsReturn="True"/>
+                    </Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>
+

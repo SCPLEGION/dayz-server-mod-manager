@@ -1,6 +1,6 @@
 # DayZ Server Mod Manager (Steam Workshop IDs)
 
-Windows GUI app that stores Steam Workshop *published file IDs* in `mods.txt` (one ID per line).
+WPF Windows GUI app (3 tabs) that stores Steam Workshop *published file IDs* in `mods.txt` (one ID per line).
 
 ## Build / publish
 
@@ -22,9 +22,7 @@ DayZModManager/publish/DayZModManager.exe
 .\DayZModManager.exe
 ```
 
-## Steam OAuth login (optional)
-
-No OAuth in this version.
+The app also supports a CLI mode (same exe) for generating a merged `types.xml` from your mod folders (see below).
 
 ## Steam Workshop title lookup
 
@@ -33,7 +31,11 @@ Enable **Lookup titles** and set the Steam Web API key (`STEAM_API_KEY` env var)
 ## Two Tabs
 
 - **Local Mods**: loads IDs from a file you pick, shows them, and lets you remove selected IDs (writes back to that same local file).
-- **Add to mods.txt**: use **Search Workshop** to search Steam, then select a result to add its published file ID into `mods.txt`. If **Auto-add dependencies** is checked, it will also pull required dependencies and add them to `mods.txt`.
+- **Add to mods.txt**: uses **Search Workshop** to search Steam, then select a result to add its published file ID into `mods.txt`.
+  - If **Auto-add dependencies** is checked, it pulls required dependencies from Steam and writes *all* of them into `mods.txt` (deduped).
+  - Title/description lookup uses the Steam Web API key (`STEAM_API_KEY` env var or baked-in key in the app).
+
+- **Mods Folders**: choose a mods root folder, browse modId subfolders, and generate merged `types.xml`.
 
 ## Generate `types.xml` (merge per-mod types)
 
@@ -50,3 +52,9 @@ It scans each subfolder (named by modId) for:
 - `types.xml`
 - any `*_types.xml` file (so `Morty_types.xml` is included)
 and merges all `<types>` children into a single `types.xml`.
+
+In the GUI tab you can also generate the merged `types.xml` using the same logic.
+
+In **Mods Folders**, there is also:
+- **Combine all mods into one types.xml** checkbox
+- Output file textbox (default `types.xml` under your selected mods root)

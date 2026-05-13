@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace DayZModManager;
 
 internal static class AppPaths
