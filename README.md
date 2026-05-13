@@ -46,7 +46,7 @@ There’s a CLI mode baked into the same exe:
 
 If you omit args, it defaults to:
 - `modsRootDir = ..` (one folder up from the exe)
-- `outFile = ..\\types.xml`
+- `outFile = ./types.xml` (same folder as the exe)
 
 It scans each subfolder (named by modId) for:
 - `types.xml`
@@ -58,3 +58,22 @@ In the GUI tab you can also generate the merged `types.xml` using the same logic
 In **Mods Folders**, there is also:
 - **Combine all mods into one types.xml** checkbox
 - Output file textbox (default `types.xml` under your selected mods root)
+
+## Integration with `servermanager.ps1`
+
+If your DayZ server uses a `server-manager` folder with `servermanager.ps1`, put the published exe into that same folder:
+
+- `server-manager/DayZModManager.exe`
+
+Then in `servermanager.ps1`, run the generator before starting/restarting the server. Example:
+
+```powershell
+$modsRoot = Join-Path $PSScriptRoot "MODS_ROOT_HERE"   # folder that contains modId subfolders
+$typesOut = Join-Path $PSScriptRoot "types.xml"         # written next to servermanager.ps1 / exe
+
+& (Join-Path $PSScriptRoot "DayZModManager.exe") generate-types $modsRoot $typesOut
+```
+
+Notes:
+- `$PSScriptRoot` points to the folder where `servermanager.ps1` lives.
+- `MODS_ROOT_HERE` should be the folder that contains subfolders named like `2629595854` (modId folders) that have `types.xml` / `Morty_types.xml` etc.
