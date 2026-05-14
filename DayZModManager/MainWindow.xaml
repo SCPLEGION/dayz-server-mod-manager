@@ -451,10 +451,32 @@
                         <!-- LEFT: combine controls + folders list + profiles -->
                         <DockPanel Grid.Column="0" Background="{StaticResource Bg1}" LastChildFill="True">
 
-                            <!-- Combine controls -->
-                            <StackPanel DockPanel.Dock="Top" Margin="12,12,12,8">
-                                <TextBlock Text="// TYPES.XML COMBINER" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
-                                <CheckBox x:Name="CombineAllCheckBox" Content="combine all mods into one types.xml" IsChecked="True"/>
+                            <!-- Combine controls (preset-driven XML merger) -->
+                            <ScrollViewer DockPanel.Dock="Top"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          MaxHeight="430">
+                            <StackPanel Margin="12,12,12,8">
+                                <TextBlock Text="// XML COMBINER" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="CombineAllCheckBox" Content="combine matching files across mods" IsChecked="True"/>
+
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="PRESET:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox  Grid.Column="1" x:Name="PresetComboBox"
+                                               SelectionChanged="OnPresetSelected"
+                                               DisplayMemberPath="DisplayName"/>
+                                </Grid>
+
+                                <TextBlock x:Name="PresetDescriptionText"
+                                           Foreground="{StaticResource Sub}"
+                                           FontSize="10"
+                                           TextWrapping="Wrap"
+                                           Margin="0,6,0,0"/>
 
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
@@ -470,6 +492,32 @@
                                     </ComboBox>
                                 </Grid>
 
+                                <TextBlock Text="INCLUDE (glob, comma-sep):" Foreground="{StaticResource Muted}"
+                                           FontSize="10" FontWeight="Bold" Margin="0,8,0,2"/>
+                                <TextBox x:Name="IncludePatternsTextBox"/>
+
+                                <TextBlock Text="EXCLUDE (glob, comma-sep):" Foreground="{StaticResource Muted}"
+                                           FontSize="10" FontWeight="Bold" Margin="0,6,0,2"/>
+                                <TextBox x:Name="ExcludePatternsTextBox"/>
+
+                                <Grid Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="6"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="ROOT ELEM:" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" FontWeight="Bold" Margin="0,0,0,2"/>
+                                        <TextBox x:Name="RootElementTextBox"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="KEY ATTR:" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" FontWeight="Bold" Margin="0,0,0,2"/>
+                                        <TextBox x:Name="KeyAttributeTextBox"/>
+                                    </StackPanel>
+                                </Grid>
+
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -480,11 +528,12 @@
                                     <TextBox   Grid.Column="1" x:Name="CombineOutFileTextBox" Text="types.xml"/>
                                 </Grid>
 
-                                <Button Style="{StaticResource BtnGreen}" Content="▶ GENERATE TYPES.XML"
+                                <Button Style="{StaticResource BtnGreen}" Content="▶ COMBINE FILES"
                                         Click="OnGenerateCombinedTypes" Margin="0,10,0,0"/>
                                 <Button Content="◑ PREVIEW (DRY-RUN)"
                                         Click="OnPreviewCombinedTypes" Margin="0,6,0,0"/>
                             </StackPanel>
+                            </ScrollViewer>
 
                             <!-- Profiles -->
                             <Border DockPanel.Dock="Bottom"

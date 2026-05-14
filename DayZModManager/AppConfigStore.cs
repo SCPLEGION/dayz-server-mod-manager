@@ -16,6 +16,7 @@ internal sealed class AppConfigStore
         public string? LocalModsTxtPath { get; set; }
         public string? CombineOutFileText { get; set; }
         public int? MergeModeSelectedIndex { get; set; }
+        public string? SelectedPresetId { get; set; }
     }
 
     public static string ConfigPath => Path.Combine(AppContext.BaseDirectory, "config.json");
