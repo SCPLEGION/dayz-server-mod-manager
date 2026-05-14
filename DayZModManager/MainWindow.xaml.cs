@@ -6,6 +6,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using DayZModManager.Services;
 
 namespace DayZModManager;
 
@@ -45,11 +46,15 @@ public partial class MainWindow : Window
             SearchApiKeyTextBox.Text = keyToUse;
             ModsApiKeyTextBox.Text = keyToUse;
 
-            // Default mods root one level above publish folder.
-            ModsRootTextBox.Text = System.IO.Path.Combine(AppContext.BaseDirectory, "..");
+            // Default mods root: parent of exe directory (parent1/parent2/exe layout).
+            ModsRootTextBox.Text = AppPaths.DefaultModsRoot;
             LocalFilePathTextBox.Text = AppPaths.ModsTxtPath;
 
-            // Load persisted config (paths + merge mode).
+            // Populate preset dropdown.
+            PresetComboBox.ItemsSource = XmlMergePresets.All;
+            PresetComboBox.SelectedIndex = 0; // "types" by default
+
+            // Load persisted config (paths + merge mode + preset).
             var cfg = AppConfigStore.Load();
             if (!string.IsNullOrWhiteSpace(cfg.LocalModsTxtPath))
                 LocalFilePathTextBox.Text = cfg.LocalModsTxtPath!;
@@ -59,6 +64,11 @@ public partial class MainWindow : Window
                 CombineOutFileTextBox.Text = cfg.CombineOutFileText!;
             if (cfg.MergeModeSelectedIndex is int idx)
                 MergeModeComboBox.SelectedIndex = idx;
+            if (!string.IsNullOrWhiteSpace(cfg.SelectedPresetId))
+            {
+                var saved = XmlMergePresets.FindById(cfg.SelectedPresetId!);
+                if (saved != null) PresetComboBox.SelectedItem = saved;
+            }
 
             CombineAllCheckBox.Checked += (_, _) => UpdateCombineEnabled();
             CombineAllCheckBox.Unchecked += (_, _) => UpdateCombineEnabled();
@@ -779,6 +789,50 @@ public partial class MainWindow : Window
         return Task.CompletedTask;
     }
 
+    private void OnPresetSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (PresetComboBox.SelectedItem is not XmlMergePreset preset) return;
+
+        IncludePatternsTextBox.Text = string.Join(", ", preset.IncludePatterns);
+        ExcludePatternsTextBox.Text = string.Join(", ", preset.ExcludePatterns);
+        RootElementTextBox.Text = preset.RootElementName;
+        KeyAttributeTextBox.Text = preset.KeyAttribute ?? string.Empty;
+        CombineOutFileTextBox.Text = preset.OutputFileName;
+        PresetDescriptionText.Text = preset.Description;
+    }
+
+    /// <summary>Build a preset from the currently-edited UI fields, falling back to defaults.</summary>
+    private XmlMergePreset BuildPresetFromUi()
+    {
+        var basePreset = PresetComboBox.SelectedItem as XmlMergePreset
+                         ?? XmlMergePresets.FindById("types")!;
+
+        static string[] SplitList(string? raw) =>
+            string.IsNullOrWhiteSpace(raw)
+                ? Array.Empty<string>()
+                : raw.Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                     .Select(s => s.Trim())
+                     .Where(s => s.Length > 0)
+                     .ToArray();
+
+        var includes = SplitList(IncludePatternsTextBox.Text);
+        var excludes = SplitList(ExcludePatternsTextBox.Text);
+        var rootName = string.IsNullOrWhiteSpace(RootElementTextBox.Text)
+            ? basePreset.RootElementName
+            : RootElementTextBox.Text.Trim();
+        var keyAttr  = string.IsNullOrWhiteSpace(KeyAttributeTextBox.Text)
+            ? null
+            : KeyAttributeTextBox.Text.Trim();
+
+        return basePreset with
+        {
+            IncludePatterns = includes.Length > 0 ? includes : basePreset.IncludePatterns,
+            ExcludePatterns = excludes,
+            RootElementName = rootName,
+            KeyAttribute    = keyAttr,
+        };
+    }
+
     private async void OnGenerateCombinedTypes(object sender, RoutedEventArgs e)
     {
         try
@@ -797,14 +851,19 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // Requirement: default output should live next to the exe.
-            var outFile = System.IO.Path.IsPathRooted(outVal)
-                ? outVal
-                : System.IO.Path.Combine(AppContext.BaseDirectory, outVal);
+            var outFile   = AppPaths.ResolveOutputPath(outVal);
             var mergeMode = GetSelectedMergeMode();
-            FolderDetailsTextBox.Text = "Generating combined types.xml...";
-            await Task.Run(() => TypesXmlGenerator.Generate(root, outFile, mergeMode));
-            FolderDetailsTextBox.Text = $"Generated: {outFile}";
+            var preset    = BuildPresetFromUi();
+
+            FolderDetailsTextBox.Text = $"Combining {preset.DisplayName}...";
+            var stats = await Task.Run(() =>
+                XmlMergeService.Generate(root, preset, mergeMode, outFile));
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Generated: {outFile}");
+            sb.AppendLine();
+            sb.AppendLine(FormatStats(stats));
+            FolderDetailsTextBox.Text = sb.ToString();
         }
         catch (Exception ex)
         {
@@ -826,33 +885,46 @@ public partial class MainWindow : Window
             }
 
             var mergeMode = GetSelectedMergeMode();
-            FolderDetailsTextBox.Text = "Previewing combined types.xml (dry-run)...";
+            var preset    = BuildPresetFromUi();
 
-            var stats = await Task.Run(() => TypesXmlGenerator.Preview(root, mergeMode));
-
-            var sb = new StringBuilder();
-            sb.AppendLine("Dry-run preview:");
-            sb.AppendLine($"Mods scanned: {stats.ModDirsScanned}");
-            sb.AppendLine($"types.xml files found: {stats.TypesXmlFilesFound}");
-            sb.AppendLine($"Candidate <types> children found: {stats.CandidateTypesElementsFound}");
-            sb.AppendLine($"Merged output children: {stats.MergedTypeChildren}");
-            sb.AppendLine($"Unique type keys: {stats.UniqueTypeKeys}");
-            sb.AppendLine($"Conflicts detected: {stats.ConflictCount}");
-
-            if (stats.ConflictCount > 0 && stats.Conflicts.Count > 0)
-            {
-                sb.AppendLine();
-                sb.AppendLine("First conflicts:");
-                foreach (var c in stats.Conflicts.Take(25))
-                    sb.AppendLine($"- {c.Key}");
-            }
-
-            FolderDetailsTextBox.Text = sb.ToString();
+            FolderDetailsTextBox.Text = $"Previewing {preset.DisplayName} (dry-run)...";
+            var stats = await Task.Run(() => XmlMergeService.Preview(root, preset, mergeMode));
+            FolderDetailsTextBox.Text = "Dry-run preview:\r\n\r\n" + FormatStats(stats);
         }
         catch (Exception ex)
         {
             FolderDetailsTextBox.Text = $"Preview failed: {ex.Message}";
         }
+    }
+
+    private static string FormatStats(XmlMergeStats stats)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Preset: {stats.PresetDisplayName}");
+        sb.AppendLine($"Mod dirs scanned: {stats.ModDirsScanned}");
+        sb.AppendLine($"Matching files found: {stats.FilesFound}");
+        sb.AppendLine($"Candidate child elements: {stats.CandidateChildrenFound}");
+        sb.AppendLine($"Merged children written: {stats.MergedChildren}");
+        sb.AppendLine($"Unique keys: {stats.UniqueKeys}");
+        sb.AppendLine($"Conflicts detected: {stats.ConflictCount}");
+
+        if (stats.SkippedInvalidFiles.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Skipped (invalid XML): {stats.SkippedInvalidFiles.Count}");
+            foreach (var f in stats.SkippedInvalidFiles.Take(10))
+                sb.AppendLine($"  - {f}");
+        }
+
+        if (stats.ConflictCount > 0 && stats.Conflicts.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("First conflicts:");
+            foreach (var c in stats.Conflicts.Take(25))
+                sb.AppendLine($"  - {c.Key}");
+        }
+
+        return sb.ToString();
     }
 
     private TypesXmlMergeMode GetSelectedMergeMode()
@@ -874,7 +946,8 @@ public partial class MainWindow : Window
             ModsRootPath = ModsRootTextBox.Text.Trim(),
             LocalModsTxtPath = LocalFilePathTextBox.Text.Trim(),
             CombineOutFileText = CombineOutFileTextBox.Text.Trim(),
-            MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex
+            MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex,
+            SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id
         };
 
         AppConfigStore.Save(cfg);
