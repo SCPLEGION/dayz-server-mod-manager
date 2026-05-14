@@ -18,3 +18,10 @@ types.xml
 types_test.xml
 /publish
 /DayZModManager/publish-singlefile
+
+# build-and-pack.ps1 output
+/artifacts/
+/dist/
+
+# Local agent / memory state
+ruvector.db
