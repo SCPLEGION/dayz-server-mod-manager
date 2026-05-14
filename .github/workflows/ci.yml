@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      self_contained:
+        description: 'Publish as self-contained (bundles .NET runtime)'
+        type: boolean
+        default: false
+      single_file:
+        description: 'Publish as a single .exe (requires self_contained)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+
+jobs:
+  build:
+    name: Build & pack (Windows / ${{ matrix.runtime }})
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [win-x64]
+        configuration: [Release]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Show dotnet info
+        run: dotnet --info
+
+      - name: Restore
+        run: dotnet restore DayZModManager/DayZModManager.csproj
+
+      - name: Build
+        run: >
+          dotnet build DayZModManager/DayZModManager.csproj
+          --configuration ${{ matrix.configuration }}
+          --no-restore
+          /p:TreatWarningsAsErrors=false
+
+      - name: Compute version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+              $v = $env:GITHUB_REF -replace '^refs/tags/v',''
+          } else {
+              $sha = $env:GITHUB_SHA.Substring(0,7)
+              $v = "$(Get-Date -Format 'yyyyMMdd')-$sha"
+          }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "version=$v"
+
+      - name: Pack (framework-dependent)
+        if: github.event_name != 'workflow_dispatch' || inputs.self_contained != true
+        shell: pwsh
+        run: |
+          ./scripts/build-and-pack.ps1 `
+            -Configuration ${{ matrix.configuration }} `
+            -Runtime ${{ matrix.runtime }} `
+            -Version ${{ steps.ver.outputs.version }} `
+            -SkipClean
+
+      - name: Pack (self-contained single-file)
+        if: github.event_name == 'workflow_dispatch' && inputs.self_contained == true
+        shell: pwsh
+        run: |
+          $sf = $${{ inputs.single_file }}
+          $args = @(
+              '-Configuration', '${{ matrix.configuration }}',
+              '-Runtime', '${{ matrix.runtime }}',
+              '-Version', '${{ steps.ver.outputs.version }}',
+              '-SelfContained',
+              '-SkipClean'
+          )
+          if ($sf) { $args += '-SingleFile' }
+          & ./scripts/build-and-pack.ps1 @args
+
+      - name: List artifacts
+        shell: pwsh
+        run: Get-ChildItem dist -Recurse | Format-Table -AutoSize
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DayZModManager-${{ matrix.configuration }}-${{ matrix.runtime }}-${{ steps.ver.outputs.version }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Show downloaded files
+        run: find artifacts -type f -printf '%p\n'
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
