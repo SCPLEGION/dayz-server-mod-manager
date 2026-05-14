@@ -3,222 +3,658 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         mc:Ignorable="d"
-        Title="DayZ Mod Manager"
-        Width="1200"
-        Height="900"
-        Background="#F8FAFC"
+        Title="DayZ Mod Manager // SCP LEGION"
+        Width="1280"
+        Height="820"
+        MinWidth="1100"
+        MinHeight="680"
+        Background="{StaticResource Bg}"
         WindowStartupLocation="CenterScreen">
 
-    <Grid Margin="12">
-        <TabControl>
-            <!-- Local Mods -->
-            <TabItem Header="Local Mods">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="34"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ═══════════════ TOPBAR ═══════════════ -->
+        <Border Grid.Row="0"
+                Background="{StaticResource Bg1}"
+                BorderBrush="{StaticResource Line}"
+                BorderThickness="0,0,0,1">
+            <DockPanel LastChildFill="True" Margin="12,0">
+                <!-- Logo -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="[" Foreground="{StaticResource Line2}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock Text="SCP" Foreground="{StaticResource Muted}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock Text="] " Foreground="{StaticResource Line2}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock Text="DAYZ" Foreground="{StaticResource Accent}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock Text=" // " Foreground="{StaticResource Muted}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock Text="MOD_MANAGER" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="11"/>
+
+                    <Rectangle Width="1" Height="14" Fill="{StaticResource Line2}" Margin="14,0"/>
+
+                    <Border Style="{StaticResource PillGreen}">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                            <TextBlock Text="PROTOCOL ACTIVE" Foreground="{StaticResource AccentDim}"
+                                       FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource PillCyan}" Margin="6,0,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="6" Height="6" Fill="{StaticResource Cyan}" VerticalAlignment="Center"/>
+                            <TextBlock Text="STEAM API · 200" Foreground="{StaticResource Cyan}"
+                                       FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Right cluster: totals + clock -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Style="{StaticResource Pill}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="MODS.TXT" Foreground="{StaticResource Muted}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TopMods" Text="0" Foreground="{StaticResource Text}"
+                                       FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource PillGreen}" Margin="6,0,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="INSTALLED" Foreground="{StaticResource AccentDim}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TopInstalled" Text="0" Foreground="{StaticResource Accent}"
+                                       FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Rectangle Width="1" Height="14" Fill="{StaticResource Line2}" Margin="10,0"/>
+                    <TextBlock x:Name="TopCrumb" Text="LOCAL_MODS" Foreground="{StaticResource Text}"
+                               FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <TextBlock x:Name="TopPathText" Text="" Foreground="{StaticResource Muted}"
+                           FontSize="10" Margin="14,0,0,0" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ═══════════════ BODY ═══════════════ -->
+        <TabControl Grid.Row="1"
+                    x:Name="MainTabs"
+                    Style="{StaticResource SidebarTabControl}"
+                    ItemContainerStyle="{StaticResource SidebarTabItem}"
+                    SelectionChanged="OnMainTabChanged">
+
+            <!-- ════════ TAB 0: LOCAL MODS ════════ -->
+            <TabItem>
+                <TabItem.Header>
+                    <TextBlock Text="&#x2261;" ToolTip="LOCAL MODS"/>
+                </TabItem.Header>
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="330"/>
+                        <ColumnDefinition Width="340"/>
+                        <ColumnDefinition Width="1"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <DockPanel Grid.Column="0" LastChildFill="True">
-                        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                            <TextBlock Text="Local file (one Workshop ID per line)" Margin="0,0,0,6"/>
+                    <!-- LEFT: list of IDs -->
+                    <DockPanel Grid.Column="0" Background="{StaticResource Bg1}" LastChildFill="True">
+                        <!-- Panel header -->
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                            <DockPanel LastChildFill="True">
+                                <TextBlock Text="01" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                                <TextBlock Text="  // INSTALLED MODS" Foreground="{StaticResource Muted}"
+                                           FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <Border DockPanel.Dock="Right" Style="{StaticResource Pill}" HorizontalAlignment="Right">
+                                    <TextBlock x:Name="LocalCountPill" Text="0" Foreground="{StaticResource Text}"
+                                               FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
+                                </Border>
+                            </DockPanel>
+                        </Border>
 
-                            <DockPanel LastChildFill="True" Margin="0,0,0,6">
-                                <TextBox x:Name="LocalFilePathTextBox" Height="26" VerticalContentAlignment="Center"/>
-                                <Button Content="Browse" DockPanel.Dock="Right" Width="80" Margin="6,0,0,0" Height="26" Click="OnBrowseLocalFile"/>
+                        <!-- Filter + actions -->
+                        <StackPanel DockPanel.Dock="Top" Margin="10,10,10,8">
+                            <TextBlock Text="// MODS FILE" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                            <DockPanel LastChildFill="True" Margin="0,0,0,8">
+                                <Button Content="BROWSE" DockPanel.Dock="Right" Width="72" Margin="6,0,0,0" Click="OnBrowseLocalFile"/>
+                                <TextBox x:Name="LocalFilePathTextBox"/>
                             </DockPanel>
 
-                            <DockPanel LastChildFill="True" Margin="0,0,0,6">
-                                <Button Content="Refresh" Width="90" Height="26" Click="OnRefreshLocal"/>
-                                <CheckBox x:Name="LocalLookupCheckBox" Content="Lookup titles" Margin="12,0,0,0"/>
-                            </DockPanel>
+                            <TextBlock Text="// STEAM WEB API KEY (OPTIONAL)" Style="{StaticResource SectionLabel}" Margin="0,4,0,6"/>
+                            <TextBox x:Name="LocalApiKeyTextBox" Margin="0,0,0,8"/>
 
-                            <CheckBox x:Name="LocalShowInstalledCheckBox" Content="Show installed status" IsChecked="True" Margin="0,6,0,0"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <CheckBox x:Name="LocalLookupCheckBox" Content="lookup titles"/>
+                                <CheckBox x:Name="LocalShowInstalledCheckBox" Content="show installed" IsChecked="True" Margin="14,0,0,0"/>
+                            </StackPanel>
 
-                            <TextBlock Text="Steam Web API key (optional if baked-in key is ok)" Margin="0,10,0,4" />
-                            <TextBox x:Name="LocalApiKeyTextBox" Height="26" VerticalContentAlignment="Center"/>
-
-                            <Button Content="Remove Selected" Margin="0,10,0,0" Height="30" Click="OnRemoveSelected"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Style="{StaticResource BtnGreen}" Content="⟳ REFRESH" Click="OnRefreshLocal"/>
+                                <Button Grid.Column="2" Style="{StaticResource BtnRed}"   Content="✕ REMOVE"  Click="OnRemoveSelected"/>
+                            </Grid>
                         </StackPanel>
 
-                        <TextBlock x:Name="LocalStatusTextBlock" DockPanel.Dock="Bottom" Margin="0,8,0,0" Foreground="#6E7884"/>
+                        <!-- Status -->
+                        <Border DockPanel.Dock="Bottom"
+                                Background="{StaticResource Bg1}"
+                                BorderBrush="{StaticResource Line}"
+                                BorderThickness="0,1,0,0"
+                                Padding="12,6">
+                            <TextBlock x:Name="LocalStatusTextBlock" Foreground="{StaticResource Muted}" FontSize="10"/>
+                        </Border>
 
+                        <ListBox x:Name="LocalIdsListBox" SelectionMode="Single" BorderThickness="0" Background="Transparent"/>
                     </DockPanel>
 
-                    <Grid Grid.Column="1">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="34"/>
-                        </Grid.RowDefinitions>
+                    <!-- Separator -->
+                    <Rectangle Grid.Column="1" Fill="{StaticResource Line}"/>
 
-                        <ListBox x:Name="LocalIdsListBox" Grid.Row="0" SelectionMode="Single" />
-                        <Border Grid.Row="1" Background="#FFFFFF" CornerRadius="4" Padding="10,8">
-                            <TextBlock x:Name="LocalFooterTextBlock" Foreground="#6E7884"/>
+                    <!-- RIGHT: detail / footer info -->
+                    <DockPanel Grid.Column="2" Background="{StaticResource Bg}" LastChildFill="True">
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                            <DockPanel LastChildFill="True">
+                                <TextBlock Text="02" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                                <TextBlock Text="  // MOD DETAIL" Foreground="{StaticResource Muted}"
+                                           FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <Border DockPanel.Dock="Right" Style="{StaticResource PillGreen}" HorizontalAlignment="Right">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                                        <TextBlock Text="LOADED" Foreground="{StaticResource AccentDim}"
+                                                   FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+                            </DockPanel>
                         </Border>
-                    </Grid>
+
+                        <Border DockPanel.Dock="Bottom"
+                                Background="{StaticResource Bg1}"
+                                BorderBrush="{StaticResource Line}"
+                                BorderThickness="0,1,0,0"
+                                Padding="14,8">
+                            <TextBlock x:Name="LocalFooterTextBlock" Foreground="{StaticResource Muted}" FontSize="10"/>
+                        </Border>
+
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="22,18">
+                            <StackPanel>
+                                <!-- Hero -->
+                                <Grid Margin="0,0,0,18">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="96"/>
+                                        <ColumnDefinition Width="16"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Width="96" Height="96"
+                                            Background="{StaticResource Bg2}"
+                                            BorderBrush="{StaticResource Line2}" BorderThickness="1">
+                                        <TextBlock Text="DZ" Foreground="{StaticResource AccentDim}"
+                                                   FontSize="26" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Top">
+                                        <TextBlock x:Name="DetailTitleText" Text="(select a mod)"
+                                                   Foreground="{StaticResource Text}"
+                                                   FontSize="16" FontWeight="Bold"/>
+                                        <TextBlock x:Name="DetailIdText" Text="// no selection"
+                                                   Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,10"/>
+                                        <WrapPanel>
+                                            <Border Style="{StaticResource PillGreen}" Margin="0,0,6,4">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="ACTIVE" Foreground="{StaticResource AccentDim}"
+                                                               FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Border>
+                                            <Border Style="{StaticResource Pill}" Margin="0,0,6,4">
+                                                <TextBlock Text="WORKSHOP" Foreground="{StaticResource Dim}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <Border Style="{StaticResource PillCyan}" Margin="0,0,6,4">
+                                                <TextBlock Text="@CHERNARUS" Foreground="{StaticResource Cyan}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- KV grid -->
+                                <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+                                    <StackPanel>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="120"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="PATH" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold"/>
+                                            <TextBlock x:Name="DetailPathText" Grid.Column="1" Text="—" Foreground="{StaticResource Text}" FontSize="10"/>
+                                        </Grid>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="120"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="INSTALLED" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold"/>
+                                            <TextBlock x:Name="DetailInstalledText" Grid.Column="1" Text="—" Foreground="{StaticResource Text}" FontSize="10"/>
+                                        </Grid>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="120"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="WORKSHOP ID" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold"/>
+                                            <TextBlock x:Name="DetailWsIdText" Grid.Column="1" Text="—" Foreground="{StaticResource Text}" FontSize="10"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,14,0,0" Margin="0,14,0,0">
+                                    <TextBlock Text="// Tip: select an ID on the left to see workshop links and remove options. Use the SEARCH WORKSHOP tab to add new mods."
+                                               Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
                 </Grid>
             </TabItem>
 
-            <!-- Add to mods.txt -->
-            <TabItem Header="Add to mods.txt">
+            <!-- ════════ TAB 1: SEARCH WORKSHOP ════════ -->
+            <TabItem>
+                <TabItem.Header>
+                    <TextBlock Text="&#x2315;" ToolTip="SEARCH WORKSHOP"/>
+                </TabItem.Header>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="330"/>
+                        <ColumnDefinition Width="1"/>
+                        <ColumnDefinition Width="360"/>
                     </Grid.ColumnDefinitions>
 
-                    <Grid Grid.Column="0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
+                    <!-- LEFT: search controls + results -->
+                    <DockPanel Grid.Column="0" LastChildFill="True">
 
-                        <StackPanel Grid.Row="0" Margin="0,0,0,10">
-                            <TextBlock Text="Steam Workshop search" Margin="0,0,0,6" FontWeight="SemiBold"/>
+                        <!-- Search controls -->
+                        <Border DockPanel.Dock="Top"
+                                Background="{StaticResource Bg1}"
+                                BorderBrush="{StaticResource Line}"
+                                BorderThickness="0,0,0,1"
+                                Padding="16,14">
+                            <StackPanel>
+                                <TextBlock Text="// STEAM WORKSHOP SEARCH" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
 
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="14"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="14"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="8"/>
+                                        <ColumnDefinition Width="100"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="appid"        Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox   Grid.Column="1" x:Name="AppIdTextBox" Text="221100"/>
+                                    <TextBlock Grid.Column="3" Text="creator"      Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox   Grid.Column="4" x:Name="CreatorAppIdTextBox" Text="221100"/>
+                                    <TextBox   Grid.Column="6" x:Name="SearchTextBox"/>
+                                    <Button    Grid.Column="8" Style="{StaticResource BtnGreen}" Content="⌕ SEARCH" Click="OnSearchWorkshop"/>
+                                </Grid>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="170"/>
+                                        <ColumnDefinition Width="16"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="16"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="240"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="sort:" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <ComboBox  Grid.Column="1" x:Name="WorkshopSortComboBox" SelectedIndex="0">
+                                        <ComboBoxItem Content="Relevance"/>
+                                        <ComboBoxItem Content="Title (A-Z)"/>
+                                        <ComboBoxItem Content="Title (Z-A)"/>
+                                        <ComboBoxItem Content="ID (asc)"/>
+                                    </ComboBox>
+                                    <CheckBox  Grid.Column="3" x:Name="HideInModsCheckBox"  Content="hide in mods.txt"/>
+                                    <CheckBox  Grid.Column="5" x:Name="AutoAddDepsCheckBox" Content="auto-add deps" IsChecked="True"/>
+                                    <TextBlock Grid.Column="7" Text="api key:" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox   Grid.Column="8" x:Name="SearchApiKeyTextBox"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Actions at the bottom -->
+                        <Border DockPanel.Dock="Bottom"
+                                Background="{StaticResource Bg1}"
+                                BorderBrush="{StaticResource Line}"
+                                BorderThickness="0,1,0,0"
+                                Padding="12,8">
                             <DockPanel LastChildFill="True">
-                                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,12,0">
-                                    <TextBlock Text="appid" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                    <TextBox x:Name="AppIdTextBox" Width="90" Text="221100"/>
-                                    <TextBlock Text="creator_appid" Margin="12,0,6,0" VerticalAlignment="Center"/>
-                                    <TextBox x:Name="CreatorAppIdTextBox" Width="90" Text="221100"/>
-                                </StackPanel>
-
-                                <TextBox x:Name="SearchTextBox" Height="28" Margin="0,0,0,0" VerticalContentAlignment="Center"/>
-                                <Button Content="Search" Width="90" Height="28" Margin="10,0,0,0" Click="OnSearchWorkshop"/>
+                                <Button DockPanel.Dock="Left" Style="{StaticResource BtnGreen}" Content="⊕ ADD SELECTED"  Click="OnAddSelected" Margin="0,0,6,0" Width="160"/>
+                                <Button DockPanel.Dock="Left" Content="▦ DEPENDENCY TREE" Click="OnShowDependencyTree" Width="180"/>
+                                <TextBlock x:Name="AddStatusTextBlock" Foreground="{StaticResource Muted}" FontSize="10"
+                                           VerticalAlignment="Center" Margin="14,0,0,0"/>
                             </DockPanel>
+                        </Border>
 
-                            <DockPanel Margin="0,10,0,0">
-                                <TextBlock Text="Sort:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <ComboBox x:Name="WorkshopSortComboBox" Width="160" SelectedIndex="0">
-                                    <ComboBoxItem Content="Relevance (as returned)"/>
-                                    <ComboBoxItem Content="Title (A-Z)"/>
-                                    <ComboBoxItem Content="Title (Z-A)"/>
-                                    <ComboBoxItem Content="ID (asc)"/>
-                                </ComboBox>
-                                <CheckBox x:Name="HideInModsCheckBox" Content="Hide in mods.txt" Margin="14,0,0,0"/>
-                            </DockPanel>
-
-                            <DockPanel Margin="0,8,0,0">
-                                <CheckBox x:Name="AutoAddDepsCheckBox" Content="Auto-add dependencies" IsChecked="True"/>
-                            </DockPanel>
-
-                            <DockPanel Margin="0,8,0,0">
-                                <TextBlock Text="Steam Web API key" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="SearchApiKeyTextBox" Height="28" VerticalContentAlignment="Center"/>
-                            </DockPanel>
-
-                            <TextBlock Text="Bulk add IDs (one per line)" Margin="0,12,0,6" FontWeight="SemiBold"/>
-                            <TextBox x:Name="BulkIdsTextBox" Height="90" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
-                            <Button Content="Add Bulk to mods.txt" Height="32" Width="200" Margin="0,8,0,0" Click="OnAddBulk"/>
-                        </StackPanel>
-
-                        <ListBox x:Name="SearchResultsListBox" Grid.Row="1" SelectionMode="Single">
+                        <!-- Results -->
+                        <ListBox x:Name="SearchResultsListBox" SelectionMode="Single"
+                                 BorderThickness="0" Background="Transparent" Padding="6">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="White" CornerRadius="6" Padding="10" Margin="6" BorderBrush="#E6ECF5" BorderThickness="1">
+                                    <Border Background="{StaticResource Bg1}"
+                                            BorderBrush="{StaticResource Line}"
+                                            BorderThickness="1"
+                                            Padding="12" Margin="2,4">
                                         <StackPanel>
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding Description}" Margin="0,6,0,0" Foreground="#6E7884" TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding PublishedFileId}" FontSize="11" Foreground="#A0A8B5" Margin="0,8,0,0"/>
+                                            <TextBlock Text="{Binding Title}"       Foreground="{StaticResource Text}"  FontWeight="Bold" FontSize="12" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Description}" Foreground="{StaticResource Muted}" FontSize="10"     Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding PublishedFileId}" Foreground="{StaticResource AccentDim}" FontSize="10" Margin="0,8,0,0"/>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
+                    </DockPanel>
 
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
-                            <Button Content="Add Selected to mods.txt" Height="34" Width="220" Click="OnAddSelected"/>
-                            <Button Content="Dependency tree" Height="34" Width="170" Margin="10,0,0,0" Click="OnShowDependencyTree"/>
-                            <TextBlock x:Name="AddStatusTextBlock" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="#6E7884"/>
+                    <Rectangle Grid.Column="1" Fill="{StaticResource Line}"/>
+
+                    <!-- RIGHT: mods.txt panel + bulk -->
+                    <DockPanel Grid.Column="2" Background="{StaticResource Bg1}" LastChildFill="True">
+                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                            <DockPanel LastChildFill="True">
+                                <TextBlock Text="03" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                                <TextBlock Text="  // MODS.TXT" Foreground="{StaticResource Muted}"
+                                           FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+
+                        <!-- Bulk add -->
+                        <StackPanel DockPanel.Dock="Top" Margin="12,10,12,8">
+                            <TextBlock Text="// BULK ADD (ONE ID PER LINE)" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                            <TextBox x:Name="BulkIdsTextBox" Height="92"
+                                     AcceptsReturn="True" TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"/>
+                            <Button Style="{StaticResource BtnGreen}" Content="⊕ ADD BULK TO MODS.TXT"
+                                    Click="OnAddBulk" Margin="0,8,0,4" HorizontalAlignment="Stretch"/>
+
+                            <TextBlock Text="// LOOKUP" Style="{StaticResource SectionLabel}" Margin="0,8,0,6"/>
+                            <CheckBox x:Name="ModsLookupCheckBox" Content="lookup titles in mods.txt"/>
+                            <TextBox x:Name="ModsApiKeyTextBox" Margin="0,6,0,0"/>
+                            <Button Content="⟳ REFRESH" Click="OnRefreshModsList" Margin="0,8,0,0"/>
                         </StackPanel>
-                    </Grid>
 
-                    <!-- Right: mods.txt -->
-                    <DockPanel Grid.Column="1" LastChildFill="True">
-                        <StackPanel DockPanel.Dock="Top">
-                            <TextBlock Text="{Binding ModsTxtLabel}" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                            <CheckBox x:Name="ModsLookupCheckBox" Content="Lookup titles in mods.txt" IsChecked="False" Margin="0,0,0,8"/>
-                            <TextBox x:Name="ModsApiKeyTextBox" Height="28" VerticalContentAlignment="Center" />
-                            <Button Content="Refresh" Margin="0,10,0,0" Height="28" Click="OnRefreshModsList"/>
-                        </StackPanel>
+                        <Border DockPanel.Dock="Bottom"
+                                Background="{StaticResource Bg1}"
+                                BorderBrush="{StaticResource Line}"
+                                BorderThickness="0,1,0,0"
+                                Padding="12,6">
+                            <TextBlock x:Name="ModsStatusTextBlock" Foreground="{StaticResource Muted}" FontSize="10"/>
+                        </Border>
 
-                        <ListBox x:Name="ModsListBox" />
-                        <TextBlock x:Name="ModsStatusTextBlock" DockPanel.Dock="Bottom" Margin="0,8,0,0" Foreground="#6E7884"/>
+                        <ListBox x:Name="ModsListBox" BorderThickness="0" Background="Transparent"/>
                     </DockPanel>
                 </Grid>
             </TabItem>
 
-            <!-- Mods Folders -->
-            <TabItem Header="Mods Folders">
+            <!-- ════════ TAB 2: MOD FOLDERS / TYPES.XML ════════ -->
+            <TabItem>
+                <TabItem.Header>
+                    <TextBlock Text="&#x25A6;" ToolTip="MOD FOLDERS · TYPES.XML"/>
+                </TabItem.Header>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-                        <TextBlock Text="Mods root" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBox x:Name="ModsRootTextBox" Width="520"/>
-                        <Button Content="Browse" Margin="6,0,0,0" Width="90" Click="OnBrowseModsRoot"/>
-                        <Button Content="Refresh" Margin="6,0,0,0" Width="90" Click="OnRefreshModFolders"/>
-                        <Button Content="Save settings" Margin="6,0,0,0" Width="130" Click="OnSaveSettings"/>
-                    </StackPanel>
+                    <!-- Toolbar -->
+                    <Border Grid.Row="0"
+                            Background="{StaticResource Bg1}"
+                            BorderBrush="{StaticResource Line}"
+                            BorderThickness="0,0,0,1"
+                            Padding="16,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="6"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="6"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="6"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="MODS ROOT:" Foreground="{StaticResource Muted}"
+                                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox  Grid.Column="1" x:Name="ModsRootTextBox"/>
+                            <Button   Grid.Column="3" Content="BROWSE"   Click="OnBrowseModsRoot"    Width="80"/>
+                            <Button   Grid.Column="5" Content="⟳ REFRESH" Click="OnRefreshModFolders" Width="100"/>
+                            <Button   Grid.Column="7" Style="{StaticResource BtnGreen}"
+                                      Content="💾 SAVE SETTINGS" Click="OnSaveSettings" Width="150"/>
+                        </Grid>
+                    </Border>
 
                     <Grid Grid.Row="1">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="260"/>
+                            <ColumnDefinition Width="340"/>
+                            <ColumnDefinition Width="1"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <DockPanel Grid.Column="0">
-                            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                                <CheckBox x:Name="CombineAllCheckBox" Content="Combine all mods into one types.xml" IsChecked="True"/>
-                                <DockPanel Margin="0,6,0,0">
-                                    <TextBlock Text="Merge mode:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <ComboBox x:Name="MergeModeComboBox" Width="190" SelectedIndex="0">
+                        <!-- LEFT: combine controls + folders list + profiles -->
+                        <DockPanel Grid.Column="0" Background="{StaticResource Bg1}" LastChildFill="True">
+
+                            <!-- Combine controls -->
+                            <StackPanel DockPanel.Dock="Top" Margin="12,12,12,8">
+                                <TextBlock Text="// TYPES.XML COMBINER" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="CombineAllCheckBox" Content="combine all mods into one types.xml" IsChecked="True"/>
+
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="MERGE:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox  Grid.Column="1" x:Name="MergeModeComboBox" SelectedIndex="0">
                                         <ComboBoxItem Content="Dedupe-first (by name)"/>
                                         <ComboBoxItem Content="Append (keep all)"/>
                                         <ComboBoxItem Content="Dedupe-last (by name)"/>
                                     </ComboBox>
-                                </DockPanel>
-                                <DockPanel Margin="0,6,0,0">
-                                    <TextBlock Text="Output:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBox x:Name="CombineOutFileTextBox" Width="200" Text="types.xml"/>
-                                </DockPanel>
-                                <Button Content="Generate combined types.xml" Margin="0,10,0,0" Height="30" Click="OnGenerateCombinedTypes"/>
-                                <Button Content="Preview combined types.xml (dry-run)" Margin="0,8,0,0" Height="30" Click="OnPreviewCombinedTypes"/>
+                                </Grid>
+
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="OUT:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBox   Grid.Column="1" x:Name="CombineOutFileTextBox" Text="types.xml"/>
+                                </Grid>
+
+                                <Button Style="{StaticResource BtnGreen}" Content="▶ GENERATE TYPES.XML"
+                                        Click="OnGenerateCombinedTypes" Margin="0,10,0,0"/>
+                                <Button Content="◑ PREVIEW (DRY-RUN)"
+                                        Click="OnPreviewCombinedTypes" Margin="0,6,0,0"/>
                             </StackPanel>
 
-                            <ListBox x:Name="ModFoldersListBox" SelectionMode="Single" SelectionChanged="OnModFolderSelected" DockPanel.Dock="Top"/>
-
-                            <Border DockPanel.Dock="Bottom" BorderBrush="#E6ECF5" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Background="White">
+                            <!-- Profiles -->
+                            <Border DockPanel.Dock="Bottom"
+                                    Background="{StaticResource Bg2}"
+                                    BorderBrush="{StaticResource Line}"
+                                    BorderThickness="0,1,0,0"
+                                    Padding="12,10">
                                 <StackPanel>
-                                    <TextBlock Text="Profiles" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                                    <DockPanel>
-                                        <TextBox x:Name="ProfileNameTextBox" Width="140" Text="default"/>
-                                        <Button Content="Export" Width="80" Margin="8,0,0,0" Click="OnExportProfile"/>
-                                        <Button Content="Import" Width="80" Margin="8,0,0,0" Click="OnImportProfile"/>
-                                    </DockPanel>
+                                    <TextBlock Text="// PROFILES" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="74"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="74"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" x:Name="ProfileNameTextBox" Text="default"/>
+                                        <Button  Grid.Column="2" Content="EXPORT" Click="OnExportProfile"/>
+                                        <Button  Grid.Column="4" Content="IMPORT" Click="OnImportProfile"/>
+                                    </Grid>
                                 </StackPanel>
                             </Border>
 
-                            <Border DockPanel.Dock="Bottom" BorderBrush="#E6ECF5" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Background="White">
-                                <StackPanel>
-                                    <TextBlock Text="History (mods.txt)" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                                    <ListBox x:Name="HistoryListBox" Height="90"/>
-                                    <Button Content="Refresh history" Margin="0,8,0,0" Height="28" Click="OnRefreshHistory"/>
-                                </StackPanel>
+                            <Border DockPanel.Dock="Top"
+                                    BorderBrush="{StaticResource Line}"
+                                    BorderThickness="0,1,0,1"
+                                    Padding="12,8">
+                                <TextBlock Text="// MOD FOLDERS" Style="{StaticResource SectionLabel}"/>
                             </Border>
+
+                            <ListBox x:Name="ModFoldersListBox"
+                                     SelectionMode="Single"
+                                     SelectionChanged="OnModFolderSelected"
+                                     BorderThickness="0" Background="Transparent"/>
                         </DockPanel>
 
-                        <TextBox x:Name="FolderDetailsTextBox" Grid.Column="1" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AcceptsReturn="True"/>
+                        <Rectangle Grid.Column="1" Fill="{StaticResource Line}"/>
+
+                        <!-- RIGHT: folder details / XML viewer -->
+                        <DockPanel Grid.Column="2" Background="{StaticResource Bg}" LastChildFill="True">
+                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock Text="04" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                                    <TextBlock Text="  // FOLDER DETAILS" Foreground="{StaticResource Muted}"
+                                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </Border>
+
+                            <TextBox x:Name="FolderDetailsTextBox"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     Background="{StaticResource Bg}"
+                                     BorderThickness="0"
+                                     Padding="14"
+                                     FontFamily="{StaticResource MonoFont}"
+                                     FontSize="11"
+                                     Foreground="{StaticResource Sub}"/>
+                        </DockPanel>
                     </Grid>
                 </Grid>
             </TabItem>
+
+            <!-- ════════ TAB 3: HISTORY ════════ -->
+            <TabItem>
+                <TabItem.Header>
+                    <TextBlock Text="&#x21BA;" ToolTip="HISTORY"/>
+                </TabItem.Header>
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                        <DockPanel LastChildFill="True">
+                            <TextBlock Text="05" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                            <TextBlock Text="  // MODS.TXT HISTORY" Foreground="{StaticResource Muted}"
+                                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <Button DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                    Content="⟳ REFRESH HISTORY" Click="OnRefreshHistory" Width="180" Margin="6,5"/>
+                        </DockPanel>
+                    </Border>
+
+                    <ListBox x:Name="HistoryListBox" BorderThickness="0" Background="Transparent" Padding="6"/>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ════════ TAB 4: SETTINGS ════════ -->
+            <TabItem>
+                <TabItem.Header>
+                    <TextBlock Text="&#x2699;" ToolTip="SETTINGS"/>
+                </TabItem.Header>
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                        <DockPanel LastChildFill="True">
+                            <TextBlock Text="06" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                            <TextBlock Text="  // SETTINGS" Foreground="{StaticResource Muted}"
+                                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </Border>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="36,28">
+                        <Grid MaxWidth="1100" HorizontalAlignment="Left">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="26"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="26"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Paths card -->
+                            <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="PATHS" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="11"/>
+                                    <TextBlock Text="// disk locations used by the manager" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,16"/>
+
+                                    <TextBlock Text="LOCAL MODS.TXT" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
+                                    <DockPanel LastChildFill="True" Margin="0,0,0,10">
+                                        <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0" Click="OnBrowseLocalFile"/>
+                                        <TextBlock Text="(uses LocalFilePathTextBox above)" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center"/>
+                                    </DockPanel>
+
+                                    <TextBlock Text="MODS ROOT" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                    <TextBlock Text="(uses ModsRootTextBox in MOD FOLDERS tab)" Foreground="{StaticResource Muted}" FontSize="10"/>
+
+                                    <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="0,10,0,0">
+                                        <Button Style="{StaticResource BtnGreen}" Content="💾 SAVE SETTINGS" Click="OnSaveSettings" HorizontalAlignment="Left" Width="180"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Connections card -->
+                            <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="CONNECTIONS" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="11"/>
+                                    <TextBlock Text="// external services" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,16"/>
+
+                                    <Border BorderBrush="{StaticResource AccentBorder}" BorderThickness="1"
+                                            Background="{StaticResource AccentBg}" Padding="10,8" Margin="0,0,0,10">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                                            <TextBlock Text="STEAM WEB API" Foreground="{StaticResource AccentDim}"
+                                                       FontSize="10" FontWeight="Bold" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text=" · ok" Foreground="{StaticResource AccentDim}" FontSize="10" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <TextBlock Text="// the keys above are used; leave blank to use the baked-in key."
+                                               Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- About card -->
+                            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="ABOUT" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="11"/>
+                                    <TextBlock Text="// DayZ Mod Manager — SCP LEGION" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,12"/>
+                                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Sub}" FontSize="11">
+                                        Manage mods.txt, search Steam Workshop, resolve dependencies, and combine types.xml from local mod folders.
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </ScrollViewer>
+                </DockPanel>
+            </TabItem>
+
         </TabControl>
     </Grid>
 </Window>

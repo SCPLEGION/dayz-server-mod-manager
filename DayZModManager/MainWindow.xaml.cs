@@ -33,6 +33,8 @@ public partial class MainWindow : Window
         ModsListBox.ItemsSource = _modsListItems;
         ModFoldersListBox.ItemsSource = _modFolders;
 
+        LocalIdsListBox.SelectionChanged += OnLocalIdSelected;
+
         Loaded += (_, _) =>
         {
             var envKey = Environment.GetEnvironmentVariable("STEAM_API_KEY");
@@ -75,6 +77,81 @@ public partial class MainWindow : Window
         CombineOutFileTextBox.IsEnabled = enabled;
     }
 
+    // ---- Topbar / UI sync ----
+    private void OnMainTabChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, MainTabs)) return;
+        if (TopCrumb == null || TopPathText == null) return;
+
+        switch (MainTabs.SelectedIndex)
+        {
+            case 0:
+                TopCrumb.Text = "LOCAL_MODS";
+                TopPathText.Text = "// " + (LocalFilePathTextBox?.Text ?? "");
+                break;
+            case 1:
+                TopCrumb.Text = "SEARCH_WORKSHOP";
+                TopPathText.Text = "// steam workshop · appid " + (AppIdTextBox?.Text ?? "");
+                break;
+            case 2:
+                TopCrumb.Text = "MOD_FOLDERS";
+                TopPathText.Text = "// " + (ModsRootTextBox?.Text ?? "");
+                break;
+            case 3:
+                TopCrumb.Text = "HISTORY";
+                TopPathText.Text = "// mods.txt history log";
+                break;
+            case 4:
+                TopCrumb.Text = "SETTINGS";
+                TopPathText.Text = "// app configuration";
+                break;
+        }
+    }
+
+    private void UpdateTopStats(int total, int installed)
+    {
+        if (TopMods != null)      TopMods.Text      = total.ToString();
+        if (TopInstalled != null) TopInstalled.Text = installed.ToString();
+        if (LocalCountPill != null) LocalCountPill.Text = total.ToString();
+    }
+
+    private static string ExtractIdToken(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return string.Empty;
+        var token = line.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+        return token;
+    }
+
+    private void OnLocalIdSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        var raw = LocalIdsListBox?.SelectedItem?.ToString() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(raw) || raw.StartsWith("("))
+        {
+            if (DetailTitleText != null) DetailTitleText.Text = "(select a mod)";
+            if (DetailIdText != null)    DetailIdText.Text    = "// no selection";
+            if (DetailPathText != null)  DetailPathText.Text  = "—";
+            if (DetailInstalledText != null) DetailInstalledText.Text = "—";
+            if (DetailWsIdText != null)  DetailWsIdText.Text  = "—";
+            return;
+        }
+
+        var idToken = ExtractIdToken(raw);
+        var title = raw.Contains(" - ")
+            ? raw.Substring(raw.IndexOf(" - ", StringComparison.Ordinal) + 3).Replace("(installed)", "").Trim()
+            : idToken;
+
+        var modsRoot = ModsRootTextBox?.Text?.Trim() ?? string.Empty;
+        var installed = !string.IsNullOrWhiteSpace(modsRoot) && Directory.Exists(Path.Combine(modsRoot, idToken));
+
+        if (DetailTitleText != null) DetailTitleText.Text = string.IsNullOrWhiteSpace(title) ? idToken : title;
+        if (DetailIdText != null)    DetailIdText.Text    = "// " + idToken;
+        if (DetailWsIdText != null)  DetailWsIdText.Text  = idToken;
+        if (DetailPathText != null)  DetailPathText.Text  = installed
+            ? Path.Combine(modsRoot, idToken)
+            : "(not installed at " + (string.IsNullOrWhiteSpace(modsRoot) ? "<mods root unset>" : modsRoot) + ")";
+        if (DetailInstalledText != null) DetailInstalledText.Text = installed ? "yes" : "no";
+    }
+
     // ---- Local mods tab ----
     private void OnBrowseLocalFile(object sender, RoutedEventArgs e)
     {
@@ -115,14 +192,17 @@ public partial class MainWindow : Window
 
             if (!doLookup)
             {
+                var installedCount = 0;
                 foreach (var id in ids)
                 {
                     var installed = modsRootExists && Directory.Exists(Path.Combine(modsRoot, id.ToString()));
+                    if (installed) installedCount++;
                     _localItems.Add(installed ? $"{id} (installed)" : id.ToString());
                 }
                 LocalFooterTextBlock.Text = invalidCount > 0
                     ? $"Loaded {ids.Length} IDs (invalid lines: {invalidCount})."
                     : $"Loaded {ids.Length} IDs.";
+                UpdateTopStats(ids.Length, installedCount);
                 return;
             }
 
@@ -149,9 +229,11 @@ public partial class MainWindow : Window
             }).ToArray();
 
             var resolved = await Task.WhenAll(tasks);
+            var installedTotal = 0;
             foreach (var (id, title) in resolved.OrderBy(x => x.id))
             {
                 var installed = modsRootExists && Directory.Exists(Path.Combine(modsRoot, id.ToString()));
+                if (installed) installedTotal++;
                 if (!string.IsNullOrWhiteSpace(title))
                     _localItems.Add(installed ? $"{id} - {title} (installed)" : $"{id} - {title}");
                 else
@@ -161,6 +243,7 @@ public partial class MainWindow : Window
             LocalFooterTextBlock.Text = invalidCount > 0
                 ? $"Loaded {ids.Length} IDs (invalid lines: {invalidCount})."
                 : $"Loaded {ids.Length} IDs.";
+            UpdateTopStats(ids.Length, installedTotal);
         }
         catch (Exception ex)
         {
