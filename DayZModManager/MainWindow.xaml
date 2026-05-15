@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
         Title="DayZ Mod Manager // SCP LEGION"
         Width="1280"
@@ -10,16 +11,72 @@
         MinWidth="1100"
         MinHeight="680"
         Background="{StaticResource Bg}"
-        WindowStartupLocation="CenterScreen">
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterScreen"
+        StateChanged="OnWindowStateChanged">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="28"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
 
+    <Border x:Name="WindowRootBorder"
+            BorderBrush="{StaticResource Line2}"
+            BorderThickness="1">
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="28"/>
             <RowDefinition Height="34"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ═══════════════ TOPBAR ═══════════════ -->
+        <!-- ═══════════════ TITLE BAR ═══════════════ -->
         <Border Grid.Row="0"
+                Background="{StaticResource Bg1}"
+                BorderBrush="{StaticResource Line}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Title (draggable area) -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <TextBlock Text="▣" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text=" DAYZ_MOD_MANAGER" Foreground="{StaticResource Text}"
+                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    <TextBlock Text=" // " Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text="SCP_LEGION" Foreground="{StaticResource AccentDim}"
+                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Window control buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Stretch">
+                    <Button x:Name="MinimizeButton"
+                            Style="{StaticResource TitleBarButton}"
+                            Content="─"
+                            ToolTip="Minimize"
+                            Click="OnMinimizeClick"/>
+                    <Button x:Name="MaximizeButton"
+                            Style="{StaticResource TitleBarButton}"
+                            Content="▢"
+                            ToolTip="Maximize"
+                            Click="OnMaximizeRestoreClick"/>
+                    <Button x:Name="CloseButton"
+                            Style="{StaticResource TitleBarCloseButton}"
+                            Content="✕"
+                            ToolTip="Close"
+                            Click="OnCloseClick"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ═══════════════ TOPBAR ═══════════════ -->
+        <Border Grid.Row="1"
                 Background="{StaticResource Bg1}"
                 BorderBrush="{StaticResource Line}"
                 BorderThickness="0,0,0,1">
@@ -78,7 +135,7 @@
         </Border>
 
         <!-- ═══════════════ BODY ═══════════════ -->
-        <TabControl Grid.Row="1"
+        <TabControl Grid.Row="2"
                     x:Name="MainTabs"
                     Style="{StaticResource SidebarTabControl}"
                     ItemContainerStyle="{StaticResource SidebarTabItem}"
@@ -706,4 +763,5 @@
 
         </TabControl>
     </Grid>
+    </Border>
 </Window>

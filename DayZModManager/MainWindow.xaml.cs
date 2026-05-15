@@ -1051,6 +1051,32 @@ public partial class MainWindow : Window
 
     private void OnRefreshHistory(object sender, RoutedEventArgs e) => _ = RefreshHistoryAsync();
 
+    private void OnMinimizeClick(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void OnMaximizeRestoreClick(object sender, RoutedEventArgs e)
+        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
+
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (MaximizeButton != null)
+            MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "▢";
+
+        // When maximized with WindowStyle=None, WPF over-extends past the work area.
+        // Pad the inner border so content isn't clipped by taskbar / screen edges.
+        if (WindowRootBorder != null)
+        {
+            WindowRootBorder.Padding = WindowState == WindowState.Maximized
+                ? new Thickness(8, 8, 8, 8)
+                : new Thickness(0);
+            WindowRootBorder.BorderThickness = WindowState == WindowState.Maximized
+                ? new Thickness(0)
+                : new Thickness(1);
+        }
+    }
+
     private Task RefreshHistoryAsync()
     {
         try
