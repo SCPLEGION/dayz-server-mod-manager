@@ -1,10 +1,15 @@
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Linq;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using DayZModManager.Services;
 
@@ -23,6 +28,16 @@ public partial class MainWindow : Window
 
     private readonly Dictionary<ulong, string?> _titleCache = new();
     private readonly Dictionary<ulong, List<ulong>> _depsCache = new();
+
+    // ---- Server tab ----
+    private ServerProcessController? _server;
+    private RptLogTail? _tail;
+    private readonly LinkedList<string> _tailBuffer = new();
+    private DispatcherTimer? _uptimeTimer;
+    private bool _forceReauth;
+    private int _tailLineCap = 2000;
+    private enum LogSource { Rpt, SteamCmd }
+    private LogSource _activeLogSource = LogSource.Rpt;
 
     public MainWindow()
     {
@@ -74,11 +89,32 @@ public partial class MainWindow : Window
             CombineAllCheckBox.Unchecked += (_, _) => UpdateCombineEnabled();
             UpdateCombineEnabled();
 
+            // ---- Server tab init ----
+            PreStartPresetComboBox.ItemsSource = XmlMergePresets.All;
+            PreStartPresetComboBox.SelectedIndex = 0;
+
+            HydrateServerUiFromConfig(cfg.Server);
+            InitServerController();
+            UpdateServerModeVisibility();
+            UpdateServerButtonsForState(ServerState.Stopped);
+
+            _uptimeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _uptimeTimer.Tick += (_, _) => RefreshUptimeText();
+
+            Closing += OnWindowClosing;
+
             _ = RefreshLocalAsync();
             _ = RefreshModsListAsync();
             _ = RefreshModFoldersAsync();
             _ = RefreshHistoryAsync();
         };
+    }
+
+    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        // Detach (don't kill) the server: closing the manager window is not a stop request.
+        try { _tail?.Dispose(); } catch { }
+        try { _server?.Detach(); } catch { }
     }
 
     private void UpdateCombineEnabled()
@@ -108,10 +144,14 @@ public partial class MainWindow : Window
                 TopPathText.Text = "// " + (ModsRootTextBox?.Text ?? "");
                 break;
             case 3:
+                TopCrumb.Text = "SERVER";
+                TopPathText.Text = "// dayz server controls";
+                break;
+            case 4:
                 TopCrumb.Text = "HISTORY";
                 TopPathText.Text = "// mods.txt history log";
                 break;
-            case 4:
+            case 5:
                 TopCrumb.Text = "SETTINGS";
                 TopPathText.Text = "// app configuration";
                 break;
@@ -947,10 +987,12 @@ public partial class MainWindow : Window
             LocalModsTxtPath = LocalFilePathTextBox.Text.Trim(),
             CombineOutFileText = CombineOutFileTextBox.Text.Trim(),
             MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex,
-            SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id
+            SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id,
+            Server = ReadServerConfigFromUi()
         };
 
         AppConfigStore.Save(cfg);
+        ApplyServerConfigToController(cfg.Server);
         System.Windows.MessageBox.Show("Settings saved to config.json.", "Saved", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
@@ -987,7 +1029,8 @@ public partial class MainWindow : Window
                 AutoAddDeps = AutoAddDepsCheckBox.IsChecked == true,
                 SearchApiKey = SearchApiKeyTextBox.Text.Trim(),
                 LocalModsApiKey = LocalApiKeyTextBox.Text.Trim(),
-                ModsIds = ModStorage.LoadIds(AppPaths.ModsTxtPath).ToList()
+                ModsIds = ModStorage.LoadIds(AppPaths.ModsTxtPath).ToList(),
+                Server = ReadServerConfigFromUi()
             };
 
             var json = JsonSerializer.Serialize(profile, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
@@ -1037,6 +1080,13 @@ public partial class MainWindow : Window
                 _ => 0
             };
 
+            if (profile.Server != null)
+            {
+                HydrateServerUiFromConfig(profile.Server);
+                ApplyServerConfigToController(profile.Server);
+                UpdateServerModeVisibility();
+            }
+
             ModStorage.SaveIdsFromSet(AppPaths.ModsTxtPath, profile.ModsIds ?? new List<ulong>());
             _ = RefreshLocalAsync();
             _ = RefreshModsListAsync();
@@ -1050,6 +1100,32 @@ public partial class MainWindow : Window
     }
 
     private void OnRefreshHistory(object sender, RoutedEventArgs e) => _ = RefreshHistoryAsync();
+
+    private void OnMinimizeClick(object sender, RoutedEventArgs e)
+        => WindowState = WindowState.Minimized;
+
+    private void OnMaximizeRestoreClick(object sender, RoutedEventArgs e)
+        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
+
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (MaximizeButton != null)
+            MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "▢";
+
+        // When maximized with WindowStyle=None, WPF over-extends past the work area.
+        // Pad the inner border so content isn't clipped by taskbar / screen edges.
+        if (WindowRootBorder != null)
+        {
+            WindowRootBorder.Padding = WindowState == WindowState.Maximized
+                ? new Thickness(8, 8, 8, 8)
+                : new Thickness(0);
+            WindowRootBorder.BorderThickness = WindowState == WindowState.Maximized
+                ? new Thickness(0)
+                : new Thickness(1);
+        }
+    }
 
     private Task RefreshHistoryAsync()
     {
@@ -1072,6 +1148,578 @@ public partial class MainWindow : Window
             HistoryListBox.Items.Clear();
             HistoryListBox.Items.Add(ex.Message);
             return Task.CompletedTask;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // SERVER TAB — controller wiring, log tail, SteamCMD update flow
+    // ═══════════════════════════════════════════════════════════════════
+
+    private void HydrateServerUiFromConfig(ServerConfig? cfg)
+    {
+        cfg ??= new ServerConfig();
+
+        if (cfg.Mode == ServerLaunchMode.Ps1) ModePs1Radio.IsChecked = true;
+        else ModeDirectRadio.IsChecked = true;
+
+        ServerPs1PathTextBox.Text = cfg.Ps1Path ?? string.Empty;
+        ServerExePathTextBox.Text = cfg.ExePath ?? string.Empty;
+        ServerProfileDirTextBox.Text = cfg.ProfileDir ?? AppPaths.DefaultServerProfileDir;
+        ServerRootDirTextBox.Text = cfg.ServerRootDir
+            ?? (string.IsNullOrWhiteSpace(cfg.ExePath) ? string.Empty : (Path.GetDirectoryName(cfg.ExePath) ?? string.Empty));
+        ServerPortTextBox.Text = (cfg.Port ?? 2302).ToString();
+        ServerExtraArgsTextBox.Text = cfg.ExtraArgs ?? string.Empty;
+        ServerBattlEyeCheckBox.IsChecked = cfg.BattlEye;
+
+        SteamCmdPathTextBox.Text = cfg.SteamCmdPath ?? string.Empty;
+        ModCacheDirTextBox.Text = cfg.ModCacheDir ?? AppPaths.DefaultModCacheDir;
+        SteamLoginTextBox.Text = cfg.SteamLogin ?? string.Empty;
+        if (cfg.LoginMode == SteamLoginMode.Anonymous) LoginAnonymousRadio.IsChecked = true;
+        else LoginInteractiveRadio.IsChecked = true;
+        WorkshopAppIdTextBox.Text = cfg.WorkshopAppId.ToString();
+        DeployModeComboBox.SelectedIndex = (int)cfg.DeployMode;
+        ValidateModsCheckBox.IsChecked = cfg.ValidateMods;
+        AutoUpdateBeforeStartCheckBox.IsChecked = cfg.AutoUpdateModsBeforeStart;
+
+        AutoRestartCheckBox.IsChecked = cfg.AutoRestartOnCrash;
+        AutoRestartBackoffTextBox.Text = cfg.AutoRestartBackoffSeconds.ToString();
+        AutoRestartMaxRetriesTextBox.Text = cfg.AutoRestartMaxRetries.ToString();
+
+        PreStartMergeCheckBox.IsChecked = cfg.RunPreStartMerge;
+        if (!string.IsNullOrWhiteSpace(cfg.PreStartPresetId))
+        {
+            var preset = XmlMergePresets.FindById(cfg.PreStartPresetId!);
+            if (preset != null) PreStartPresetComboBox.SelectedItem = preset;
+        }
+
+        _tailLineCap = cfg.TailLineCap > 0 ? cfg.TailLineCap : 2000;
+    }
+
+    private ServerConfig ReadServerConfigFromUi()
+    {
+        var mode = (ModePs1Radio.IsChecked == true) ? ServerLaunchMode.Ps1 : ServerLaunchMode.DirectExe;
+        var loginMode = (LoginAnonymousRadio.IsChecked == true) ? SteamLoginMode.Anonymous : SteamLoginMode.Interactive;
+
+        int? port = int.TryParse(ServerPortTextBox.Text.Trim(), out var p) ? p : (int?)null;
+        uint appId = uint.TryParse(WorkshopAppIdTextBox.Text.Trim(), out var a) ? a : 221100u;
+        int backoff = int.TryParse(AutoRestartBackoffTextBox.Text.Trim(), out var b) ? b : 10;
+        int maxRetries = int.TryParse(AutoRestartMaxRetriesTextBox.Text.Trim(), out var m) ? m : 3;
+
+        return new ServerConfig
+        {
+            Mode = mode,
+            Ps1Path = NullIfEmpty(ServerPs1PathTextBox.Text),
+            ExePath = NullIfEmpty(ServerExePathTextBox.Text),
+            ProfileDir = NullIfEmpty(ServerProfileDirTextBox.Text),
+            ServerRootDir = NullIfEmpty(ServerRootDirTextBox.Text),
+            Port = port,
+            ExtraArgs = NullIfEmpty(ServerExtraArgsTextBox.Text),
+            BattlEye = ServerBattlEyeCheckBox.IsChecked == true,
+
+            SteamCmdPath = NullIfEmpty(SteamCmdPathTextBox.Text),
+            ModCacheDir = NullIfEmpty(ModCacheDirTextBox.Text),
+            LoginMode = loginMode,
+            SteamLogin = NullIfEmpty(SteamLoginTextBox.Text),
+            WorkshopAppId = appId,
+            DeployMode = (ModDeployMode)Math.Max(0, DeployModeComboBox.SelectedIndex),
+            ValidateMods = ValidateModsCheckBox.IsChecked == true,
+            AutoUpdateModsBeforeStart = AutoUpdateBeforeStartCheckBox.IsChecked == true,
+
+            AutoRestartOnCrash = AutoRestartCheckBox.IsChecked == true,
+            AutoRestartBackoffSeconds = backoff,
+            AutoRestartMaxRetries = maxRetries,
+
+            RunPreStartMerge = PreStartMergeCheckBox.IsChecked == true,
+            PreStartPresetId = (PreStartPresetComboBox.SelectedItem as XmlMergePreset)?.Id,
+            TailLineCap = _tailLineCap
+        };
+    }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private void InitServerController()
+    {
+        _server = new ServerProcessController();
+        _server.StateChanged += s => Dispatcher.InvokeAsync(() =>
+        {
+            UpdateServerButtonsForState(s);
+            UpdateServerStatusPill(s);
+            if (s == ServerState.Running) _uptimeTimer?.Start();
+            else _uptimeTimer?.Stop();
+            RefreshUptimeText();
+        });
+
+        _server.Exited += (code, crashed) => Dispatcher.InvokeAsync(() =>
+        {
+            ServerActionStatusText.Text = crashed
+                ? $"crashed (exit {code})"
+                : $"exited (exit {code})";
+        });
+    }
+
+    private void ApplyServerConfigToController(ServerConfig? cfg)
+    {
+        if (_server == null || cfg == null) return;
+        _server.AutoRestartOnCrash = cfg.AutoRestartOnCrash;
+        _server.AutoRestartBackoffSeconds = cfg.AutoRestartBackoffSeconds;
+        _server.AutoRestartMaxRetries = cfg.AutoRestartMaxRetries;
+    }
+
+    private void UpdateServerModeVisibility()
+    {
+        var isPs1 = ModePs1Radio.IsChecked == true;
+        ModePs1Panel.Visibility = isPs1 ? Visibility.Visible : Visibility.Collapsed;
+        ModeDirectPanel.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
+        // Mode A doesn't need our SteamCMD controls — the ps1 handles mods.
+        ServerUpdateModsButton.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
+        ServerReauthButton.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OnServerModeChanged(object sender, RoutedEventArgs e) => UpdateServerModeVisibility();
+
+    private void UpdateServerButtonsForState(ServerState s)
+    {
+        ServerStartButton.IsEnabled = s == ServerState.Stopped || s == ServerState.Crashed;
+        ServerStopButton.IsEnabled = s == ServerState.Running || s == ServerState.Starting;
+        ServerRestartButton.IsEnabled = s == ServerState.Running;
+        ServerUpdateModsButton.IsEnabled = s != ServerState.Running && s != ServerState.Starting;
+    }
+
+    private void UpdateServerStatusPill(ServerState s)
+    {
+        ServerStateText.Text = s.ToString().ToUpperInvariant();
+        var (dot, text) = s switch
+        {
+            ServerState.Running  => ("#4ADE80", "#22C55E"),
+            ServerState.Starting => ("#FACC15", "#FACC15"),
+            ServerState.Stopping => ("#FACC15", "#FACC15"),
+            ServerState.Crashed  => ("#EF4444", "#EF4444"),
+            _                    => ("#52525B", "#52525B"),
+        };
+        ServerStatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dot));
+        ServerStateText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(text));
+        ServerPidText.Text = _server?.Pid is int pid ? $"pid {pid}" : "";
+    }
+
+    private void RefreshUptimeText()
+    {
+        if (_server?.StartedAt is DateTime started && _server.State == ServerState.Running)
+        {
+            var d = DateTime.UtcNow - started;
+            ServerUptimeText.Text = d.TotalHours >= 1
+                ? $"up {(int)d.TotalHours}h{d.Minutes:00}m"
+                : $"up {d.Minutes:00}m{d.Seconds:00}s";
+        }
+        else
+        {
+            ServerUptimeText.Text = string.Empty;
+        }
+    }
+
+    // ---- File pickers ----
+
+    private void OnServerBrowsePs1(object sender, RoutedEventArgs e)
+    {
+        var ofd = new OpenFileDialog { Filter = "PowerShell scripts (*.ps1)|*.ps1|All files (*.*)|*.*" };
+        if (ofd.ShowDialog() == true) ServerPs1PathTextBox.Text = ofd.FileName;
+    }
+
+    private void OnServerBrowseExe(object sender, RoutedEventArgs e)
+    {
+        var ofd = new OpenFileDialog { Filter = "DayZ server exe (*.exe)|*.exe|All files (*.*)|*.*" };
+        if (ofd.ShowDialog() == true)
+        {
+            ServerExePathTextBox.Text = ofd.FileName;
+            if (string.IsNullOrWhiteSpace(ServerRootDirTextBox.Text))
+                ServerRootDirTextBox.Text = Path.GetDirectoryName(ofd.FileName) ?? string.Empty;
+        }
+    }
+
+    private void OnServerBrowseProfile(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFolderDialog();
+        if (dlg.ShowDialog() == true) ServerProfileDirTextBox.Text = dlg.FolderName;
+    }
+
+    private void OnServerBrowseRoot(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFolderDialog();
+        if (dlg.ShowDialog() == true) ServerRootDirTextBox.Text = dlg.FolderName;
+    }
+
+    private void OnServerBrowseSteamCmd(object sender, RoutedEventArgs e)
+    {
+        var ofd = new OpenFileDialog { Filter = "steamcmd.exe|steamcmd.exe|All files (*.*)|*.*" };
+        if (ofd.ShowDialog() == true) SteamCmdPathTextBox.Text = ofd.FileName;
+    }
+
+    private void OnServerBrowseModCache(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFolderDialog();
+        if (dlg.ShowDialog() == true) ModCacheDirTextBox.Text = dlg.FolderName;
+    }
+
+    // ---- Log routing ----
+
+    private void OnLogSourceChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // Ignore the spurious fire from XAML init before Loaded runs.
+        if (_server == null) return;
+        _activeLogSource = LogSourceComboBox.SelectedIndex == 1 ? LogSource.SteamCmd : LogSource.Rpt;
+        ServerLogTextBox.Clear();
+        _tailBuffer.Clear();
+        if (_activeLogSource == LogSource.Rpt) StartRptTail();
+        else _tail?.Stop();
+    }
+
+    private void OnClearLog(object sender, RoutedEventArgs e)
+    {
+        ServerLogTextBox.Clear();
+        _tailBuffer.Clear();
+    }
+
+    private void StartRptTail()
+    {
+        try { _tail?.Dispose(); } catch { }
+        _tail = new RptLogTail();
+        _tail.LineAppended += line => Dispatcher.InvokeAsync(() => AppendLogLine(line));
+        _tail.ActiveFileChanged += path => Dispatcher.InvokeAsync(() => ActiveLogFileText.Text = path);
+
+        var dir = NullIfEmpty(ServerProfileDirTextBox.Text)
+                  ?? AppPaths.DefaultRptDir;
+        if (!Directory.Exists(dir))
+        {
+            ActiveLogFileText.Text = $"(directory not found: {dir})";
+            return;
+        }
+        _tail.Start(dir, new[] { "*.RPT", "*.ADM" });
+    }
+
+    private void AppendLogLine(string line)
+    {
+        _tailBuffer.AddLast(line);
+        while (_tailBuffer.Count > _tailLineCap) _tailBuffer.RemoveFirst();
+
+        ServerLogTextBox.AppendText(line + Environment.NewLine);
+        // Trim front of textbox if it grows huge
+        if (ServerLogTextBox.LineCount > _tailLineCap + 200)
+        {
+            ServerLogTextBox.Text = string.Join(Environment.NewLine, _tailBuffer);
+        }
+        if (PauseAutoscrollCheckBox.IsChecked != true)
+            ServerLogTextBox.ScrollToEnd();
+    }
+
+    // ---- Start / Stop / Restart ----
+
+    private async void OnServerStart(object sender, RoutedEventArgs e)
+    {
+        if (_server == null) return;
+        var cfg = ReadServerConfigFromUi();
+        ApplyServerConfigToController(cfg);
+
+        ServerActionStatusText.Text = "preparing…";
+        ServerStartButton.IsEnabled = false;
+
+        try
+        {
+            var deployed = new List<string>();
+            if (cfg.Mode == ServerLaunchMode.DirectExe)
+            {
+                // Auto-update + deploy if requested.
+                if (cfg.AutoUpdateModsBeforeStart)
+                {
+                    var ok = await RunSteamCmdUpdateAsync(cfg);
+                    if (!ok)
+                    {
+                        ServerActionStatusText.Text = "SteamCMD update failed — aborting start.";
+                        UpdateServerButtonsForState(_server.State);
+                        return;
+                    }
+                }
+
+                deployed = DeployMods(cfg);
+            }
+
+            if (cfg.RunPreStartMerge)
+            {
+                var mergeOk = await RunPreStartMergeAsync(cfg.PreStartPresetId ?? "types");
+                if (!mergeOk)
+                {
+                    ServerActionStatusText.Text = "pre-start merge failed — aborting start.";
+                    ServerHistoryLogger.Append("prestart-merge-failed", cfg.Mode.ToString());
+                    UpdateServerButtonsForState(_server.State);
+                    return;
+                }
+                ServerHistoryLogger.Append("prestart-merge", cfg.Mode.ToString());
+            }
+
+            var spec = new ServerLaunchSpec(
+                Mode: cfg.Mode,
+                Ps1Path: cfg.Ps1Path,
+                ExePath: cfg.ExePath,
+                ProfileDir: cfg.ProfileDir,
+                ServerRootDir: cfg.ServerRootDir,
+                Port: cfg.Port,
+                ExtraArgs: cfg.ExtraArgs,
+                BattlEye: cfg.BattlEye,
+                DeployedAtNames: deployed
+            );
+
+            ServerActionStatusText.Text = "starting…";
+            await _server.StartAsync(spec);
+            ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "start failed";
+
+            // Switch log to RPT once server is running.
+            LogSourceComboBox.SelectedIndex = 0;
+            StartRptTail();
+        }
+        catch (Exception ex)
+        {
+            ServerActionStatusText.Text = ex.Message;
+            ServerHistoryLogger.Append("start-failed", cfg.Mode.ToString(), detail: ex.Message);
+        }
+        finally
+        {
+            UpdateServerButtonsForState(_server.State);
+        }
+    }
+
+    private async void OnServerStop(object sender, RoutedEventArgs e)
+    {
+        if (_server == null) return;
+        ServerActionStatusText.Text = "stopping…";
+        ServerStopButton.IsEnabled = false;
+        try
+        {
+            await _server.StopAsync(TimeSpan.FromSeconds(5));
+            ServerActionStatusText.Text = "stopped";
+        }
+        catch (Exception ex)
+        {
+            ServerActionStatusText.Text = ex.Message;
+        }
+        finally
+        {
+            UpdateServerButtonsForState(_server.State);
+        }
+    }
+
+    private async void OnServerRestart(object sender, RoutedEventArgs e)
+    {
+        if (_server == null) return;
+        var cfg = ReadServerConfigFromUi();
+        ApplyServerConfigToController(cfg);
+
+        try
+        {
+            ServerActionStatusText.Text = "restarting…";
+            var deployed = cfg.Mode == ServerLaunchMode.DirectExe ? DeployMods(cfg) : new List<string>();
+            var spec = new ServerLaunchSpec(
+                cfg.Mode, cfg.Ps1Path, cfg.ExePath, cfg.ProfileDir, cfg.ServerRootDir,
+                cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed);
+            await _server.RestartAsync(spec);
+            ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
+        }
+        catch (Exception ex)
+        {
+            ServerActionStatusText.Text = ex.Message;
+        }
+        finally
+        {
+            UpdateServerButtonsForState(_server.State);
+        }
+    }
+
+    // ---- SteamCMD update ----
+
+    private async void OnUpdateModsClicked(object sender, RoutedEventArgs e)
+    {
+        var cfg = ReadServerConfigFromUi();
+        ServerActionStatusText.Text = "updating mods…";
+        ServerUpdateModsButton.IsEnabled = false;
+        try
+        {
+            var ok = await RunSteamCmdUpdateAsync(cfg);
+            if (ok)
+            {
+                DeployMods(cfg);
+                ServerActionStatusText.Text = "mods updated";
+            }
+            else
+            {
+                ServerActionStatusText.Text = "update failed";
+            }
+        }
+        catch (Exception ex)
+        {
+            ServerActionStatusText.Text = ex.Message;
+        }
+        finally
+        {
+            UpdateServerButtonsForState(_server?.State ?? ServerState.Stopped);
+        }
+    }
+
+    private void OnReauthClicked(object sender, RoutedEventArgs e)
+    {
+        _forceReauth = true;
+        ServerActionStatusText.Text = "next update will open SteamCMD console for re-auth";
+    }
+
+    private async Task<bool> RunSteamCmdUpdateAsync(ServerConfig cfg)
+    {
+        if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath) || !File.Exists(cfg.SteamCmdPath))
+        {
+            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(),
+                detail: "steamcmd.exe path not set or missing");
+            return false;
+        }
+
+        var cacheDir = cfg.ModCacheDir ?? AppPaths.DefaultModCacheDir;
+        Directory.CreateDirectory(cacheDir);
+
+        var ids = ModStorage.LoadIds(AppPaths.ModsTxtPath).ToList();
+        if (ids.Count == 0)
+        {
+            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: "mods.txt empty");
+            return false;
+        }
+
+        var client = new SteamCmdClient(cfg.SteamCmdPath);
+        ServerHistoryLogger.Append("steamcmd-update-start", cfg.Mode.ToString(),
+            detail: $"ids={ids.Count} validate={cfg.ValidateMods}");
+
+        // Switch log view so the user sees what's happening.
+        LogSourceComboBox.SelectedIndex = 1;
+        _activeLogSource = LogSource.SteamCmd;
+        _tail?.Stop();
+        ActiveLogFileText.Text = "SteamCMD";
+        ServerLogTextBox.Clear();
+        _tailBuffer.Clear();
+
+        var login = cfg.LoginMode == SteamLoginMode.Anonymous
+            ? "anonymous"
+            : (cfg.SteamLogin ?? "anonymous");
+
+        var useInteractive =
+            cfg.LoginMode == SteamLoginMode.Interactive &&
+            (_forceReauth || !client.HasCachedCredential(login));
+
+        int exitCode;
+        try
+        {
+            if (useInteractive)
+            {
+                AppendLogLine("[manager] SteamCMD opened in its own console window — enter password there.");
+                AppendLogLine("[manager] (this window will stay quiet until SteamCMD exits)");
+                exitCode = await client.DownloadModsInteractiveAsync(
+                    ids, cfg.WorkshopAppId, cacheDir, login, cfg.ValidateMods);
+                _forceReauth = false;
+            }
+            else
+            {
+                exitCode = 0;
+                await foreach (var line in client.DownloadModsStreamedAsync(
+                                   ids, cfg.WorkshopAppId, cacheDir, login, cfg.ValidateMods))
+                {
+                    if (line.StartsWith("__EXIT__:"))
+                    {
+                        if (int.TryParse(line.AsSpan("__EXIT__:".Length), out var ec))
+                            exitCode = ec;
+                        break;
+                    }
+                    AppendLogLine(line);
+
+                    // Auto-detect login failure → switch to interactive on next attempt.
+                    if (line.IndexOf("Login Failure", StringComparison.OrdinalIgnoreCase) >= 0
+                        || line.IndexOf("Invalid Password", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        _forceReauth = true;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] error: {ex.Message}");
+            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: ex.Message);
+            return false;
+        }
+
+        var ok = exitCode == 0;
+        ServerHistoryLogger.Append(
+            ok ? "steamcmd-update-done" : "steamcmd-update-failed",
+            cfg.Mode.ToString(),
+            exitCode: exitCode);
+        return ok;
+    }
+
+    private List<string> DeployMods(ServerConfig cfg)
+    {
+        if (string.IsNullOrWhiteSpace(cfg.ServerRootDir))
+        {
+            AppendLogLine("[manager] server root dir not set — skipping deploy.");
+            return new List<string>();
+        }
+        if (string.IsNullOrWhiteSpace(cfg.ModCacheDir))
+        {
+            AppendLogLine("[manager] mod cache dir not set — skipping deploy.");
+            return new List<string>();
+        }
+
+        var ids = ModStorage.LoadIds(AppPaths.ModsTxtPath).ToList();
+        try
+        {
+            var result = SteamCmdClient.DeployMods(
+                cfg.ModCacheDir!,
+                cfg.WorkshopAppId,
+                ids,
+                cfg.ServerRootDir!,
+                cfg.DeployMode);
+
+            var names = result.Select(r => r.AtName).ToList();
+            ServerHistoryLogger.Append("mods-deployed", cfg.Mode.ToString(),
+                detail: $"count={names.Count} mode={cfg.DeployMode}");
+            AppendLogLine($"[manager] deployed {names.Count} mods to {cfg.ServerRootDir}");
+            return names;
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] deploy failed: {ex.Message}");
+            ServerHistoryLogger.Append("mods-deploy-failed", cfg.Mode.ToString(), detail: ex.Message);
+            return new List<string>();
+        }
+    }
+
+    // ---- Pre-start XML merge (reuses XmlMergeService — same path as the Combine button) ----
+
+    private async Task<bool> RunPreStartMergeAsync(string presetId)
+    {
+        var preset = XmlMergePresets.FindById(presetId) ?? XmlMergePresets.FindById("types");
+        if (preset == null) return false;
+
+        var root = ModsRootTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        {
+            AppendLogLine($"[manager] pre-start merge: invalid mods root '{root}'");
+            return false;
+        }
+
+        var outFile = AppPaths.ResolveOutputPath(
+            string.IsNullOrWhiteSpace(CombineOutFileTextBox.Text) ? preset.OutputFileName : CombineOutFileTextBox.Text.Trim());
+        var mergeMode = GetSelectedMergeMode();
+
+        try
+        {
+            AppendLogLine($"[manager] pre-start merge: {preset.DisplayName} -> {outFile}");
+            await Task.Run(() => XmlMergeService.Generate(root, preset, mergeMode, outFile));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] pre-start merge failed: {ex.Message}");
+            return false;
         }
     }
 }

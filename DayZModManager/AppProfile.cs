@@ -31,4 +31,7 @@ internal sealed class AppProfile
 
     [JsonPropertyName("modsIds")]
     public List<ulong> ModsIds { get; set; } = new();
+
+    [JsonPropertyName("server")]
+    public ServerConfig? Server { get; set; }
 }

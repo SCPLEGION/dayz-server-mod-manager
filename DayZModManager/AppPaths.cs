@@ -21,6 +21,17 @@ internal static class AppPaths
     public static string ModsTxtPath =>
         Path.Combine(ExeDir, "mods.txt");
 
+    /// <summary>Default DayZ server profile directory: <c>parent2/ServerProfile</c>.</summary>
+    public static string DefaultServerProfileDir =>
+        Path.Combine(ExeDir, "ServerProfile");
+
+    /// <summary>Default RPT log directory — DayZ writes RPT files into the profile dir.</summary>
+    public static string DefaultRptDir => DefaultServerProfileDir;
+
+    /// <summary>Default SteamCMD mod cache directory (persistent <c>+force_install_dir</c>).</summary>
+    public static string DefaultModCacheDir =>
+        Path.Combine(ExeDir, "steamcmd-cache");
+
     /// <summary>Resolve a possibly-relative output file path against <see cref="ExeDir"/>.</summary>
     public static string ResolveOutputPath(string maybeRelative)
     {

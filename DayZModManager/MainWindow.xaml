@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         mc:Ignorable="d"
         Title="DayZ Mod Manager // SCP LEGION"
         Width="1280"
@@ -10,16 +11,72 @@
         MinWidth="1100"
         MinHeight="680"
         Background="{StaticResource Bg}"
-        WindowStartupLocation="CenterScreen">
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterScreen"
+        StateChanged="OnWindowStateChanged">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="28"
+                            ResizeBorderThickness="6"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
 
+    <Border x:Name="WindowRootBorder"
+            BorderBrush="{StaticResource Line2}"
+            BorderThickness="1">
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="28"/>
             <RowDefinition Height="34"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ═══════════════ TOPBAR ═══════════════ -->
+        <!-- ═══════════════ TITLE BAR ═══════════════ -->
         <Border Grid.Row="0"
+                Background="{StaticResource Bg1}"
+                BorderBrush="{StaticResource Line}"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Title (draggable area) -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <TextBlock Text="▣" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text=" DAYZ_MOD_MANAGER" Foreground="{StaticResource Text}"
+                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    <TextBlock Text=" // " Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <TextBlock Text="SCP_LEGION" Foreground="{StaticResource AccentDim}"
+                               FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Window control buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Stretch">
+                    <Button x:Name="MinimizeButton"
+                            Style="{StaticResource TitleBarButton}"
+                            Content="─"
+                            ToolTip="Minimize"
+                            Click="OnMinimizeClick"/>
+                    <Button x:Name="MaximizeButton"
+                            Style="{StaticResource TitleBarButton}"
+                            Content="▢"
+                            ToolTip="Maximize"
+                            Click="OnMaximizeRestoreClick"/>
+                    <Button x:Name="CloseButton"
+                            Style="{StaticResource TitleBarCloseButton}"
+                            Content="✕"
+                            ToolTip="Close"
+                            Click="OnCloseClick"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ═══════════════ TOPBAR ═══════════════ -->
+        <Border Grid.Row="1"
                 Background="{StaticResource Bg1}"
                 BorderBrush="{StaticResource Line}"
                 BorderThickness="0,0,0,1">
@@ -78,7 +135,7 @@
         </Border>
 
         <!-- ═══════════════ BODY ═══════════════ -->
-        <TabControl Grid.Row="1"
+        <TabControl Grid.Row="2"
                     x:Name="MainTabs"
                     Style="{StaticResource SidebarTabControl}"
                     ItemContainerStyle="{StaticResource SidebarTabItem}"
@@ -600,7 +657,309 @@
                 </Grid>
             </TabItem>
 
-            <!-- ════════ TAB 3: HISTORY ════════ -->
+            <!-- ════════ TAB 3: SERVER ════════ -->
+            <TabItem>
+                <TabItem.Header>
+                    <TextBlock Text="&#x2630;" ToolTip="SERVER"/>
+                </TabItem.Header>
+                <DockPanel LastChildFill="True">
+                    <!-- Header: status pill + control buttons -->
+                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                        <DockPanel LastChildFill="True">
+                            <TextBlock Text="07" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                            <TextBlock Text="  // SERVER" Foreground="{StaticResource Muted}"
+                                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <Border DockPanel.Dock="Right" x:Name="ServerStatusPill"
+                                    Style="{StaticResource Pill}" HorizontalAlignment="Right">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="ServerStatusDot" Width="6" Height="6"
+                                             Fill="{StaticResource Muted}" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ServerStateText" Text="STOPPED"
+                                               Foreground="{StaticResource Muted}"
+                                               FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ServerPidText" Text=""
+                                               Foreground="{StaticResource Sub}"
+                                               FontSize="9" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="ServerUptimeText" Text=""
+                                               Foreground="{StaticResource Sub}"
+                                               FontSize="9" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Control buttons row -->
+                    <Border DockPanel.Dock="Top"
+                            Background="{StaticResource Bg1}"
+                            BorderBrush="{StaticResource Line}"
+                            BorderThickness="0,0,0,1"
+                            Padding="12,10">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="ServerStartButton" Style="{StaticResource BtnGreen}"
+                                    Content="▶ START" Width="120" Click="OnServerStart"/>
+                            <Button x:Name="ServerStopButton" Style="{StaticResource BtnRed}"
+                                    Content="■ STOP" Width="100" Margin="6,0,0,0"
+                                    Click="OnServerStop" IsEnabled="False"/>
+                            <Button x:Name="ServerRestartButton" Content="↻ RESTART"
+                                    Width="120" Margin="6,0,0,0"
+                                    Click="OnServerRestart" IsEnabled="False"/>
+                            <Rectangle Width="1" Height="16" Fill="{StaticResource Line2}" Margin="14,0"/>
+                            <Button x:Name="ServerUpdateModsButton" Content="⇩ UPDATE MODS"
+                                    Width="160" Click="OnUpdateModsClicked"/>
+                            <Button x:Name="ServerReauthButton" Content="🔑 RE-AUTHENTICATE"
+                                    Width="180" Margin="6,0,0,0" Click="OnReauthClicked"/>
+                            <TextBlock x:Name="ServerActionStatusText" Foreground="{StaticResource Muted}"
+                                       FontSize="10" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Configuration form -->
+                    <Expander DockPanel.Dock="Top" Header="// SETUP" IsExpanded="True"
+                              Foreground="{StaticResource Muted}" Margin="12,8,12,0">
+                        <StackPanel Margin="0,8,0,0">
+                            <!-- Mode -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="MODE:" Foreground="{StaticResource Muted}"
+                                           FontSize="10" FontWeight="Bold" VerticalAlignment="Center"
+                                           Margin="0,0,8,0"/>
+                                <RadioButton x:Name="ModePs1Radio" Content="invoke servermanager.ps1"
+                                             GroupName="ServerMode" Foreground="{StaticResource Sub}"
+                                             Margin="0,0,14,0"
+                                             Checked="OnServerModeChanged"/>
+                                <RadioButton x:Name="ModeDirectRadio" Content="launch DayZServer_x64.exe directly"
+                                             GroupName="ServerMode" Foreground="{StaticResource Sub}"
+                                             IsChecked="True"
+                                             Checked="OnServerModeChanged"/>
+                            </StackPanel>
+
+                            <!-- Mode A (ps1) panel -->
+                            <StackPanel x:Name="ModePs1Panel" Visibility="Collapsed">
+                                <TextBlock Text="// SERVERMANAGER.PS1" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                <DockPanel LastChildFill="True" Margin="0,0,0,8">
+                                    <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
+                                            Click="OnServerBrowsePs1"/>
+                                    <TextBox x:Name="ServerPs1PathTextBox"/>
+                                </DockPanel>
+                            </StackPanel>
+
+                            <!-- Mode B (direct exe) panel -->
+                            <StackPanel x:Name="ModeDirectPanel">
+                                <TextBlock Text="// DAYZSERVER_X64.EXE" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                    <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
+                                            Click="OnServerBrowseExe"/>
+                                    <TextBox x:Name="ServerExePathTextBox"/>
+                                </DockPanel>
+
+                                <TextBlock Text="// SERVER PROFILE DIR (RPT logs)" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                    <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
+                                            Click="OnServerBrowseProfile"/>
+                                    <TextBox x:Name="ServerProfileDirTextBox"/>
+                                </DockPanel>
+
+                                <TextBlock Text="// SERVER ROOT DIR (@mod deploy target)" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                    <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
+                                            Click="OnServerBrowseRoot"/>
+                                    <TextBox x:Name="ServerRootDirTextBox"
+                                             ToolTip="Where @modname junctions/symlinks/copies are placed. Defaults to the folder containing the server exe."/>
+                                </DockPanel>
+
+                                <Grid Margin="0,4,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="80"/>
+                                        <ColumnDefinition Width="14"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="14"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="port:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox Grid.Column="1" x:Name="ServerPortTextBox" Text="2302"/>
+                                    <TextBlock Grid.Column="3" Text="extra args:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBox Grid.Column="4" x:Name="ServerExtraArgsTextBox"/>
+                                    <CheckBox Grid.Column="6" x:Name="ServerBattlEyeCheckBox"
+                                              Content="BattlEye" IsChecked="True"/>
+                                </Grid>
+
+                                <!-- SteamCMD group -->
+                                <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="// STEAMCMD" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+
+                                        <TextBlock Text="STEAMCMD.EXE PATH" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                        <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                            <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
+                                                    Click="OnServerBrowseSteamCmd"/>
+                                            <TextBox x:Name="SteamCmdPathTextBox"/>
+                                        </DockPanel>
+
+                                        <TextBlock Text="MOD CACHE DIR (+force_install_dir; persists across runs)"
+                                                   Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                        <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                            <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
+                                                    Click="OnServerBrowseModCache"/>
+                                            <TextBox x:Name="ModCacheDirTextBox"
+                                                     ToolTip="SteamCMD downloads mods here. Don't delete it unless you want a full re-download next time."/>
+                                        </DockPanel>
+
+                                        <Grid Margin="0,4,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="14"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="120"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="LOGIN:" Foreground="{StaticResource Muted}"
+                                                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                <RadioButton x:Name="LoginAnonymousRadio" Content="anonymous"
+                                                             GroupName="LoginMode" Foreground="{StaticResource Sub}"
+                                                             Margin="0,0,14,0"/>
+                                                <RadioButton x:Name="LoginInteractiveRadio" Content="interactive (Steam account)"
+                                                             GroupName="LoginMode" Foreground="{StaticResource Sub}"
+                                                             IsChecked="True"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="3" Text="username:" Foreground="{StaticResource Muted}"
+                                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="4" x:Name="SteamLoginTextBox"/>
+                                        </Grid>
+
+                                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Sub}" FontSize="10" Margin="0,0,0,8">
+                                            DayZ Workshop items require a Steam account that owns DayZ — anonymous login does not work.
+                                            On first run (or after Re-authenticate) SteamCMD opens in its own console window for you to
+                                            type your password and Steam Guard code there. The manager never sees or stores your password.
+                                        </TextBlock>
+
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="100"/>
+                                                <ColumnDefinition Width="14"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="140"/>
+                                                <ColumnDefinition Width="14"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="appid:" Foreground="{StaticResource Muted}"
+                                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="1" x:Name="WorkshopAppIdTextBox" Text="221100"/>
+                                            <TextBlock Grid.Column="3" Text="deploy:" Foreground="{StaticResource Muted}"
+                                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                            <ComboBox Grid.Column="4" x:Name="DeployModeComboBox" SelectedIndex="0">
+                                                <ComboBoxItem Content="Junction"/>
+                                                <ComboBoxItem Content="Symlink"/>
+                                                <ComboBoxItem Content="Copy"/>
+                                            </ComboBox>
+                                            <StackPanel Grid.Column="6" Orientation="Horizontal">
+                                                <CheckBox x:Name="ValidateModsCheckBox" Content="validate"/>
+                                                <CheckBox x:Name="AutoUpdateBeforeStartCheckBox"
+                                                          Content="auto-update before start" Margin="14,0,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Auto-restart -->
+                            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="// AUTO-RESTART" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="80"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="AutoRestartCheckBox" Content="restart on crash"/>
+                                        <TextBlock Grid.Column="2" Text="backoff (s):" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBox Grid.Column="3" x:Name="AutoRestartBackoffTextBox" Text="10"/>
+                                        <TextBlock Grid.Column="5" Text="max retries:" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBox Grid.Column="6" x:Name="AutoRestartMaxRetriesTextBox" Text="3"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Pre-start XML merge -->
+                            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="// PRE-START XML MERGE" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="PreStartMergeCheckBox" Content="regenerate types.xml before start"/>
+                                        <TextBlock Grid.Column="2" Text="preset:" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <ComboBox Grid.Column="3" x:Name="PreStartPresetComboBox"
+                                                  DisplayMemberPath="DisplayName"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
+                                <Button Style="{StaticResource BtnGreen}" Content="💾 SAVE SERVER SETTINGS"
+                                        HorizontalAlignment="Left" Width="220" Click="OnSaveSettings"/>
+                            </Border>
+                        </StackPanel>
+                    </Expander>
+
+                    <!-- Log tail toolbar -->
+                    <Border DockPanel.Dock="Top"
+                            Background="{StaticResource Bg1}"
+                            BorderBrush="{StaticResource Line}"
+                            BorderThickness="0,1,0,1"
+                            Padding="12,6"
+                            Margin="0,8,0,0">
+                        <DockPanel LastChildFill="True">
+                            <Button DockPanel.Dock="Right" Content="CLEAR" Width="72"
+                                    Margin="6,0,0,0" Click="OnClearLog"/>
+                            <CheckBox DockPanel.Dock="Right" x:Name="PauseAutoscrollCheckBox"
+                                      Content="pause autoscroll" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                            <ComboBox DockPanel.Dock="Right" x:Name="LogSourceComboBox" Width="160" SelectedIndex="0"
+                                      SelectionChanged="OnLogSourceChanged">
+                                <ComboBoxItem Content="RPT tail"/>
+                                <ComboBoxItem Content="SteamCMD output"/>
+                            </ComboBox>
+                            <TextBlock Text="source:" Foreground="{StaticResource Muted}"
+                                       FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"
+                                       DockPanel.Dock="Right"/>
+                            <TextBlock x:Name="ActiveLogFileText" Text="(no log)"
+                                       Foreground="{StaticResource Sub}" FontSize="10" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Log tail -->
+                    <TextBox x:Name="ServerLogTextBox"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             TextWrapping="NoWrap"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Auto"
+                             Background="{StaticResource Bg}"
+                             BorderThickness="0"
+                             Padding="14"
+                             FontFamily="{StaticResource MonoFont}"
+                             FontSize="11"
+                             Foreground="{StaticResource Sub}"/>
+                </DockPanel>
+            </TabItem>
+
+            <!-- ════════ TAB 4: HISTORY ════════ -->
             <TabItem>
                 <TabItem.Header>
                     <TextBlock Text="&#x21BA;" ToolTip="HISTORY"/>
@@ -706,4 +1065,5 @@
 
         </TabControl>
     </Grid>
+    </Border>
 </Window>
