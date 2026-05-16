@@ -29,6 +29,18 @@ public sealed class ServerConfig
     [JsonPropertyName("ps1Path")]
     public string? Ps1Path { get; set; }
 
+    /// <summary>servermanager.ps1 <c>-launchParam</c>: "default" or "user".</summary>
+    [JsonPropertyName("ps1LaunchParam")]
+    public string Ps1LaunchParam { get; set; } = "default";
+
+    /// <summary>servermanager.ps1 <c>-app</c>: "stable" or "exp".</summary>
+    [JsonPropertyName("ps1AppBranch")]
+    public string Ps1AppBranch { get; set; } = "stable";
+
+    /// <summary>servermanager.ps1 <c>-update</c>: "server", "mod", or "all". Used by UPDATE MODS in Ps1 mode.</summary>
+    [JsonPropertyName("ps1UpdateTarget")]
+    public string Ps1UpdateTarget { get; set; } = "all";
+
     [JsonPropertyName("exePath")]
     public string? ExePath { get; set; }
 

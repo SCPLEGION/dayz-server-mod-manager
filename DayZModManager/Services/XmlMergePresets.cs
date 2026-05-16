@@ -9,6 +9,27 @@ namespace DayZModManager.Services;
 /// </summary>
 internal static class XmlMergePresets
 {
+    /// <summary>
+    /// Default dir-name exclusions for XML auto-generation. These are stock DayZ server
+    /// subfolders that don't contain mod XML payloads, so scanning them only wastes time
+    /// and risks false positives. Used on first run to seed the EXCLUDE DIRS textbox;
+    /// users can still edit or clear it.
+    /// </summary>
+    public static readonly IReadOnlyList<string> DefaultExcludedDirs = new[]
+    {
+        "addons",
+        "appcache",
+        "battleye",
+        "config",
+        "docs",
+        "dta",
+        "keys",
+        "logs",
+        "mpmissions",
+        "sakhal",
+        "server_manager",
+    };
+
     public static readonly IReadOnlyList<XmlMergePreset> All = new[]
     {
         // ── types.xml (loot tables) ───────────────────────────────────────────

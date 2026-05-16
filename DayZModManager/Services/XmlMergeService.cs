@@ -49,14 +49,19 @@ internal sealed record XmlMergeStats(
 
 internal static class XmlMergeService
 {
-    public static XmlMergeStats Preview(string modsRoot, XmlMergePreset preset, TypesXmlMergeMode mode)
-        => BuildMerged(modsRoot, preset, mode).Stats;
+    public static XmlMergeStats Preview(
+        string modsRoot,
+        XmlMergePreset preset,
+        TypesXmlMergeMode mode,
+        IReadOnlyCollection<string>? excludedDirNames = null)
+        => BuildMerged(modsRoot, preset, mode, excludedDirNames).Stats;
 
     public static XmlMergeStats Generate(
         string modsRoot,
         XmlMergePreset preset,
         TypesXmlMergeMode mode,
-        string outFile)
+        string outFile,
+        IReadOnlyCollection<string>? excludedDirNames = null)
     {
         if (string.IsNullOrWhiteSpace(modsRoot))
             throw new ArgumentException("modsRoot is empty.", nameof(modsRoot));
@@ -65,7 +70,7 @@ internal static class XmlMergeService
         if (string.IsNullOrWhiteSpace(outFile))
             throw new ArgumentException("outFile is empty.", nameof(outFile));
 
-        var (merged, stats) = BuildMerged(modsRoot, preset, mode);
+        var (merged, stats) = BuildMerged(modsRoot, preset, mode, excludedDirNames);
 
         var outDir = Path.GetDirectoryName(outFile);
         if (!string.IsNullOrWhiteSpace(outDir) && !Directory.Exists(outDir))
@@ -81,7 +86,8 @@ internal static class XmlMergeService
     private static (List<XElement> Merged, XmlMergeStats Stats) BuildMerged(
         string modsRoot,
         XmlMergePreset preset,
-        TypesXmlMergeMode mode)
+        TypesXmlMergeMode mode,
+        IReadOnlyCollection<string>? excludedDirNames = null)
     {
         if (string.IsNullOrWhiteSpace(modsRoot))
             throw new ArgumentException("modsRoot is empty.", nameof(modsRoot));
@@ -104,7 +110,18 @@ internal static class XmlMergeService
             return e.ToString(SaveOptions.DisableFormatting);
         }
 
-        var modDirs       = Directory.EnumerateDirectories(modsRoot).ToArray();
+        var excludeSet = (excludedDirNames != null && excludedDirNames.Count > 0)
+            ? new HashSet<string>(
+                excludedDirNames
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => n.Trim()),
+                StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        var modDirs = Directory.EnumerateDirectories(modsRoot)
+            .Where(d => excludeSet == null
+                        || !excludeSet.Contains(Path.GetFileName(d) ?? string.Empty))
+            .ToArray();
         var totalFiles    = 0;
         var totalChildren = 0;
 

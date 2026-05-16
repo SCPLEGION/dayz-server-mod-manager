@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json;
 using System.IO;
 
@@ -17,6 +18,8 @@ internal sealed class AppConfigStore
         public string? CombineOutFileText { get; set; }
         public int? MergeModeSelectedIndex { get; set; }
         public string? SelectedPresetId { get; set; }
+        /// <summary>Mod-folder names (just the leaf name, e.g. "@CF") excluded from XML auto-generation.</summary>
+        public List<string>? ExcludedXmlGenDirs { get; set; }
         public ServerConfig? Server { get; set; }
     }
 

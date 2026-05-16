@@ -585,6 +585,16 @@
                                     <TextBox   Grid.Column="1" x:Name="CombineOutFileTextBox" Text="types.xml"/>
                                 </Grid>
 
+                                <TextBlock Text="// EXCLUDE DIRS (one mod folder per line, e.g. @CF)"
+                                           Style="{StaticResource SectionLabel}" Margin="0,10,0,4"/>
+                                <TextBox x:Name="XmlGenExcludeDirsTextBox"
+                                         AcceptsReturn="True"
+                                         TextWrapping="NoWrap"
+                                         VerticalScrollBarVisibility="Auto"
+                                         MinHeight="48" MaxHeight="120"
+                                         FontFamily="Consolas"
+                                         ToolTip="Mod-folder leaf names to skip during XML auto-generation (combine, preview, pre-start merge). Case-insensitive. Lines starting with # are ignored."/>
+
                                 <Button Style="{StaticResource BtnGreen}" Content="▶ COMBINE FILES"
                                         Click="OnGenerateCombinedTypes" Margin="0,10,0,0"/>
                                 <Button Content="◑ PREVIEW (DRY-RUN)"
@@ -740,6 +750,39 @@
                                             Click="OnServerBrowsePs1"/>
                                     <TextBox x:Name="ServerPs1PathTextBox"/>
                                 </DockPanel>
+
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="14"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="14"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="120"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="-launchParam:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <ComboBox Grid.Column="1" x:Name="Ps1LaunchParamComboBox" SelectedIndex="0">
+                                        <ComboBoxItem Content="default"/>
+                                        <ComboBoxItem Content="user"/>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="3" Text="-app:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <ComboBox Grid.Column="4" x:Name="Ps1AppBranchComboBox" SelectedIndex="0">
+                                        <ComboBoxItem Content="stable"/>
+                                        <ComboBoxItem Content="exp"/>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="6" Text="-update:" Foreground="{StaticResource Muted}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"
+                                               ToolTip="Used by UPDATE MODS button in ps1 mode"/>
+                                    <ComboBox Grid.Column="7" x:Name="Ps1UpdateTargetComboBox" SelectedIndex="2">
+                                        <ComboBoxItem Content="server"/>
+                                        <ComboBoxItem Content="mod"/>
+                                        <ComboBoxItem Content="all"/>
+                                    </ComboBox>
+                                </Grid>
                             </StackPanel>
 
                             <!-- Mode B (direct exe) panel -->

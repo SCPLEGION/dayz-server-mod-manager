@@ -1,5 +1,7 @@
+using System;
 using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Linq;
@@ -84,6 +86,12 @@ public partial class MainWindow : Window
                 var saved = XmlMergePresets.FindById(cfg.SelectedPresetId!);
                 if (saved != null) PresetComboBox.SelectedItem = saved;
             }
+            // First-run seed: if no saved exclusion list, populate textbox with sensible
+            // defaults (stock DayZ server subfolders that aren't mod XML sources).
+            if (cfg.ExcludedXmlGenDirs is { Count: > 0 } ex)
+                XmlGenExcludeDirsTextBox.Text = string.Join(Environment.NewLine, ex);
+            else if (cfg.ExcludedXmlGenDirs == null)
+                XmlGenExcludeDirsTextBox.Text = string.Join(Environment.NewLine, XmlMergePresets.DefaultExcludedDirs);
 
             CombineAllCheckBox.Checked += (_, _) => UpdateCombineEnabled();
             CombineAllCheckBox.Unchecked += (_, _) => UpdateCombineEnabled();
@@ -112,9 +120,55 @@ public partial class MainWindow : Window
 
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        // Persist all configured dirs/paths even if the user never hit "SAVE SERVER SETTINGS".
+        try { PersistAllDirsToConfig(); } catch { }
+
         // Detach (don't kill) the server: closing the manager window is not a stop request.
         try { _tail?.Dispose(); } catch { }
         try { _server?.Detach(); } catch { }
+    }
+
+    /// <summary>
+    /// Returns the mods.txt path currently configured in the UI (LOCAL_MODS tab).
+    /// Falls back to the default path next to the exe when the textbox is empty
+    /// or hasn't been created yet (early-init / window-closing edge cases).
+    /// </summary>
+    private string CurrentModsTxtPath()
+    {
+        var fromUi = LocalFilePathTextBox?.Text?.Trim();
+        return string.IsNullOrWhiteSpace(fromUi) ? AppPaths.ModsTxtPath : fromUi;
+    }
+
+    private void PersistAllDirsToConfig()
+    {
+        var cfg = new AppConfigStore.Config
+        {
+            ModsRootPath = ModsRootTextBox?.Text?.Trim(),
+            LocalModsTxtPath = LocalFilePathTextBox?.Text?.Trim(),
+            CombineOutFileText = CombineOutFileTextBox?.Text?.Trim(),
+            MergeModeSelectedIndex = MergeModeComboBox?.SelectedIndex,
+            SelectedPresetId = (PresetComboBox?.SelectedItem as XmlMergePreset)?.Id,
+            ExcludedXmlGenDirs = ReadExcludedXmlGenDirs(),
+            Server = ReadServerConfigFromUi()
+        };
+        AppConfigStore.Save(cfg);
+    }
+
+    /// <summary>
+    /// Parse the EXCLUDE DIRS textbox: one folder name per line, blank lines and
+    /// lines starting with '#' are ignored. Returns null when empty so the JSON stays clean.
+    /// </summary>
+    private List<string>? ReadExcludedXmlGenDirs()
+    {
+        var raw = XmlGenExcludeDirsTextBox?.Text;
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+
+        var list = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0 && !s.StartsWith("#"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        return list.Count == 0 ? null : list;
     }
 
     private void UpdateCombineEnabled()
@@ -209,6 +263,7 @@ public partial class MainWindow : Window
         if (ofd.ShowDialog() == true)
         {
             LocalFilePathTextBox.Text = ofd.FileName;
+            try { PersistAllDirsToConfig(); } catch { }
             _ = RefreshLocalAsync();
         }
     }
@@ -373,7 +428,7 @@ public partial class MainWindow : Window
 
             if (HideInModsCheckBox.IsChecked == true)
             {
-                var existing = ModStorage.LoadIds(AppPaths.ModsTxtPath);
+                var existing = ModStorage.LoadIds(CurrentModsTxtPath());
                 list = list.Where(r => !existing.Contains(r.PublishedFileId));
             }
 
@@ -417,7 +472,7 @@ public partial class MainWindow : Window
                 closure = await ResolveDependenciesClosureAsync(root, apiKey);
             }
 
-            var modsTxtPath = AppPaths.ModsTxtPath;
+            var modsTxtPath = CurrentModsTxtPath();
             var existing = ModStorage.LoadIds(modsTxtPath);
             var toAdd = closure.Where(x => !existing.Contains(x)).ToArray();
 
@@ -525,7 +580,7 @@ public partial class MainWindow : Window
                 closure = await ResolveDependenciesClosureAsync(root, apiKey);
             }
 
-            var modsTxtPath = AppPaths.ModsTxtPath;
+            var modsTxtPath = CurrentModsTxtPath();
             var existing = ModStorage.LoadIds(modsTxtPath);
             var toAdd = closure.Where(x => !existing.Contains(x)).ToArray();
 
@@ -681,7 +736,7 @@ public partial class MainWindow : Window
             ModsStatusTextBlock.Text = "Loading...";
             _modsListItems.Clear();
 
-            var ids = ModStorage.LoadIds(AppPaths.ModsTxtPath).OrderBy(x => x).ToArray();
+            var ids = ModStorage.LoadIds(CurrentModsTxtPath()).OrderBy(x => x).ToArray();
             if (ids.Length == 0)
             {
                 _modsListItems.Add("(mods.txt empty)");
@@ -743,6 +798,7 @@ public partial class MainWindow : Window
         if (ofd.ShowDialog() == true)
         {
             ModsRootTextBox.Text = System.IO.Path.GetDirectoryName(ofd.FileName) ?? ofd.FileName;
+            try { PersistAllDirsToConfig(); } catch { }
             _ = RefreshModFoldersAsync();
         }
     }
@@ -896,8 +952,9 @@ public partial class MainWindow : Window
             var preset    = BuildPresetFromUi();
 
             FolderDetailsTextBox.Text = $"Combining {preset.DisplayName}...";
+            var excluded = ReadExcludedXmlGenDirs();
             var stats = await Task.Run(() =>
-                XmlMergeService.Generate(root, preset, mergeMode, outFile));
+                XmlMergeService.Generate(root, preset, mergeMode, outFile, excluded));
 
             var sb = new StringBuilder();
             sb.AppendLine($"Generated: {outFile}");
@@ -928,7 +985,8 @@ public partial class MainWindow : Window
             var preset    = BuildPresetFromUi();
 
             FolderDetailsTextBox.Text = $"Previewing {preset.DisplayName} (dry-run)...";
-            var stats = await Task.Run(() => XmlMergeService.Preview(root, preset, mergeMode));
+            var excluded = ReadExcludedXmlGenDirs();
+            var stats = await Task.Run(() => XmlMergeService.Preview(root, preset, mergeMode, excluded));
             FolderDetailsTextBox.Text = "Dry-run preview:\r\n\r\n" + FormatStats(stats);
         }
         catch (Exception ex)
@@ -988,6 +1046,7 @@ public partial class MainWindow : Window
             CombineOutFileText = CombineOutFileTextBox.Text.Trim(),
             MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex,
             SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id,
+            ExcludedXmlGenDirs = ReadExcludedXmlGenDirs(),
             Server = ReadServerConfigFromUi()
         };
 
@@ -1022,14 +1081,14 @@ public partial class MainWindow : Window
             var profile = new AppProfile
             {
                 Name = name,
-                ModsTxtPath = AppPaths.ModsTxtPath,
+                ModsTxtPath = CurrentModsTxtPath(),
                 ModsRootPath = ModsRootTextBox.Text.Trim(),
                 CombineOutFile = CombineOutFileTextBox.Text.Trim(),
                 MergeMode = GetSelectedMergeMode(),
                 AutoAddDeps = AutoAddDepsCheckBox.IsChecked == true,
                 SearchApiKey = SearchApiKeyTextBox.Text.Trim(),
                 LocalModsApiKey = LocalApiKeyTextBox.Text.Trim(),
-                ModsIds = ModStorage.LoadIds(AppPaths.ModsTxtPath).ToList(),
+                ModsIds = ModStorage.LoadIds(CurrentModsTxtPath()).ToList(),
                 Server = ReadServerConfigFromUi()
             };
 
@@ -1087,7 +1146,7 @@ public partial class MainWindow : Window
                 UpdateServerModeVisibility();
             }
 
-            ModStorage.SaveIdsFromSet(AppPaths.ModsTxtPath, profile.ModsIds ?? new List<ulong>());
+            ModStorage.SaveIdsFromSet(CurrentModsTxtPath(), profile.ModsIds ?? new List<ulong>());
             _ = RefreshLocalAsync();
             _ = RefreshModsListAsync();
             _ = RefreshModFoldersAsync();
@@ -1163,6 +1222,14 @@ public partial class MainWindow : Window
         else ModeDirectRadio.IsChecked = true;
 
         ServerPs1PathTextBox.Text = cfg.Ps1Path ?? string.Empty;
+        Ps1LaunchParamComboBox.SelectedIndex = string.Equals(cfg.Ps1LaunchParam, "user", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        Ps1AppBranchComboBox.SelectedIndex = string.Equals(cfg.Ps1AppBranch, "exp", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        Ps1UpdateTargetComboBox.SelectedIndex = cfg.Ps1UpdateTarget?.ToLowerInvariant() switch
+        {
+            "server" => 0,
+            "mod"    => 1,
+            _        => 2, // "all"
+        };
         ServerExePathTextBox.Text = cfg.ExePath ?? string.Empty;
         ServerProfileDirTextBox.Text = cfg.ProfileDir ?? AppPaths.DefaultServerProfileDir;
         ServerRootDirTextBox.Text = cfg.ServerRootDir
@@ -1209,6 +1276,14 @@ public partial class MainWindow : Window
         {
             Mode = mode,
             Ps1Path = NullIfEmpty(ServerPs1PathTextBox.Text),
+            Ps1LaunchParam = (Ps1LaunchParamComboBox.SelectedIndex == 1) ? "user" : "default",
+            Ps1AppBranch   = (Ps1AppBranchComboBox.SelectedIndex == 1) ? "exp" : "stable",
+            Ps1UpdateTarget = Ps1UpdateTargetComboBox.SelectedIndex switch
+            {
+                0 => "server",
+                1 => "mod",
+                _ => "all",
+            },
             ExePath = NullIfEmpty(ServerExePathTextBox.Text),
             ProfileDir = NullIfEmpty(ServerProfileDirTextBox.Text),
             ServerRootDir = NullIfEmpty(ServerRootDirTextBox.Text),
@@ -1267,11 +1342,20 @@ public partial class MainWindow : Window
 
     private void UpdateServerModeVisibility()
     {
+        // Called from RadioButton.Checked which can fire during XAML parsing
+        // before sibling named elements have been created. Bail out until ready.
+        if (ModePs1Radio == null || ModePs1Panel == null || ModeDirectPanel == null
+            || ServerUpdateModsButton == null || ServerReauthButton == null)
+            return;
+
         var isPs1 = ModePs1Radio.IsChecked == true;
         ModePs1Panel.Visibility = isPs1 ? Visibility.Visible : Visibility.Collapsed;
         ModeDirectPanel.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
-        // Mode A doesn't need our SteamCMD controls — the ps1 handles mods.
-        ServerUpdateModsButton.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
+        // UPDATE MODS is wired for both modes:
+        //   - Ps1: invokes servermanager.ps1 -u <target> -app <branch>
+        //   - DirectExe: drives SteamCMD download + deploy
+        ServerUpdateModsButton.Visibility = Visibility.Visible;
+        // Re-auth is SteamCMD-only.
         ServerReauthButton.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -1321,7 +1405,11 @@ public partial class MainWindow : Window
     private void OnServerBrowsePs1(object sender, RoutedEventArgs e)
     {
         var ofd = new OpenFileDialog { Filter = "PowerShell scripts (*.ps1)|*.ps1|All files (*.*)|*.*" };
-        if (ofd.ShowDialog() == true) ServerPs1PathTextBox.Text = ofd.FileName;
+        if (ofd.ShowDialog() == true)
+        {
+            ServerPs1PathTextBox.Text = ofd.FileName;
+            try { PersistAllDirsToConfig(); } catch { }
+        }
     }
 
     private void OnServerBrowseExe(object sender, RoutedEventArgs e)
@@ -1332,31 +1420,48 @@ public partial class MainWindow : Window
             ServerExePathTextBox.Text = ofd.FileName;
             if (string.IsNullOrWhiteSpace(ServerRootDirTextBox.Text))
                 ServerRootDirTextBox.Text = Path.GetDirectoryName(ofd.FileName) ?? string.Empty;
+            try { PersistAllDirsToConfig(); } catch { }
         }
     }
 
     private void OnServerBrowseProfile(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog();
-        if (dlg.ShowDialog() == true) ServerProfileDirTextBox.Text = dlg.FolderName;
+        if (dlg.ShowDialog() == true)
+        {
+            ServerProfileDirTextBox.Text = dlg.FolderName;
+            try { PersistAllDirsToConfig(); } catch { }
+        }
     }
 
     private void OnServerBrowseRoot(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog();
-        if (dlg.ShowDialog() == true) ServerRootDirTextBox.Text = dlg.FolderName;
+        if (dlg.ShowDialog() == true)
+        {
+            ServerRootDirTextBox.Text = dlg.FolderName;
+            try { PersistAllDirsToConfig(); } catch { }
+        }
     }
 
     private void OnServerBrowseSteamCmd(object sender, RoutedEventArgs e)
     {
         var ofd = new OpenFileDialog { Filter = "steamcmd.exe|steamcmd.exe|All files (*.*)|*.*" };
-        if (ofd.ShowDialog() == true) SteamCmdPathTextBox.Text = ofd.FileName;
+        if (ofd.ShowDialog() == true)
+        {
+            SteamCmdPathTextBox.Text = ofd.FileName;
+            try { PersistAllDirsToConfig(); } catch { }
+        }
     }
 
     private void OnServerBrowseModCache(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog();
-        if (dlg.ShowDialog() == true) ModCacheDirTextBox.Text = dlg.FolderName;
+        if (dlg.ShowDialog() == true)
+        {
+            ModCacheDirTextBox.Text = dlg.FolderName;
+            try { PersistAllDirsToConfig(); } catch { }
+        }
     }
 
     // ---- Log routing ----
@@ -1463,7 +1568,9 @@ public partial class MainWindow : Window
                 Port: cfg.Port,
                 ExtraArgs: cfg.ExtraArgs,
                 BattlEye: cfg.BattlEye,
-                DeployedAtNames: deployed
+                DeployedAtNames: deployed,
+                Ps1LaunchParam: cfg.Ps1LaunchParam,
+                Ps1AppBranch: cfg.Ps1AppBranch
             );
 
             ServerActionStatusText.Text = "starting…";
@@ -1517,7 +1624,8 @@ public partial class MainWindow : Window
             var deployed = cfg.Mode == ServerLaunchMode.DirectExe ? DeployMods(cfg) : new List<string>();
             var spec = new ServerLaunchSpec(
                 cfg.Mode, cfg.Ps1Path, cfg.ExePath, cfg.ProfileDir, cfg.ServerRootDir,
-                cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed);
+                cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed,
+                cfg.Ps1LaunchParam, cfg.Ps1AppBranch);
             await _server.RestartAsync(spec);
             ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
         }
@@ -1536,19 +1644,28 @@ public partial class MainWindow : Window
     private async void OnUpdateModsClicked(object sender, RoutedEventArgs e)
     {
         var cfg = ReadServerConfigFromUi();
-        ServerActionStatusText.Text = "updating mods…";
+        ServerActionStatusText.Text = "updating…";
         ServerUpdateModsButton.IsEnabled = false;
         try
         {
-            var ok = await RunSteamCmdUpdateAsync(cfg);
-            if (ok)
+            bool ok;
+            if (cfg.Mode == ServerLaunchMode.Ps1)
             {
-                DeployMods(cfg);
-                ServerActionStatusText.Text = "mods updated";
+                ok = await RunPs1UpdateAsync(cfg);
+                ServerActionStatusText.Text = ok ? "ps1 update done" : "ps1 update failed";
             }
             else
             {
-                ServerActionStatusText.Text = "update failed";
+                ok = await RunSteamCmdUpdateAsync(cfg);
+                if (ok)
+                {
+                    DeployMods(cfg);
+                    ServerActionStatusText.Text = "mods updated";
+                }
+                else
+                {
+                    ServerActionStatusText.Text = "update failed";
+                }
             }
         }
         catch (Exception ex)
@@ -1559,6 +1676,97 @@ public partial class MainWindow : Window
         {
             UpdateServerButtonsForState(_server?.State ?? ServerState.Stopped);
         }
+    }
+
+    private async Task<bool> RunPs1UpdateAsync(ServerConfig cfg)
+    {
+        if (string.IsNullOrWhiteSpace(cfg.Ps1Path) || !File.Exists(cfg.Ps1Path))
+        {
+            ServerHistoryLogger.Append("ps1-update-failed", cfg.Mode.ToString(),
+                detail: "servermanager.ps1 path not set or missing");
+            return false;
+        }
+
+        var target = string.IsNullOrWhiteSpace(cfg.Ps1UpdateTarget) ? "all" : cfg.Ps1UpdateTarget;
+        var app    = string.IsNullOrWhiteSpace(cfg.Ps1AppBranch)    ? "stable" : cfg.Ps1AppBranch;
+
+        // Surface ps1 stdout in the manager log pane.
+        LogSourceComboBox.SelectedIndex = 1;
+        _activeLogSource = LogSource.SteamCmd;
+        _tail?.Stop();
+        ActiveLogFileText.Text = "servermanager.ps1";
+        ServerLogTextBox.Clear();
+        _tailBuffer.Clear();
+
+        ServerHistoryLogger.Append("ps1-update-start", cfg.Mode.ToString(),
+            detail: $"target={target} app={app}");
+
+        var pwsh = ResolvePowerShellExe();
+        var psi = new ProcessStartInfo
+        {
+            FileName = pwsh,
+            Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{cfg.Ps1Path}\" -u {target} -app {app}",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(cfg.Ps1Path) ?? string.Empty,
+        };
+
+        int exitCode;
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                AppendLogLine("[manager] failed to start powershell.");
+                ServerHistoryLogger.Append("ps1-update-failed", cfg.Mode.ToString(), detail: "Process.Start returned null");
+                return false;
+            }
+
+            proc.OutputDataReceived += (_, ev) => { if (ev.Data != null) Dispatcher.InvokeAsync(() => AppendLogLine(ev.Data)); };
+            proc.ErrorDataReceived  += (_, ev) => { if (ev.Data != null) Dispatcher.InvokeAsync(() => AppendLogLine("[err] " + ev.Data)); };
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+
+            await proc.WaitForExitAsync().ConfigureAwait(false);
+            exitCode = proc.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] error: {ex.Message}");
+            ServerHistoryLogger.Append("ps1-update-failed", cfg.Mode.ToString(), detail: ex.Message);
+            return false;
+        }
+
+        var ok = exitCode == 0;
+        ServerHistoryLogger.Append(ok ? "ps1-update-done" : "ps1-update-failed",
+            cfg.Mode.ToString(), exitCode: exitCode);
+        return ok;
+    }
+
+    private static string ResolvePowerShellExe()
+    {
+        // Prefer PowerShell 7 if present, fall back to Windows PowerShell.
+        foreach (var candidate in new[] { "pwsh.exe", "powershell.exe" })
+        {
+            try
+            {
+                using var p = Process.Start(new ProcessStartInfo("where", candidate)
+                {
+                    RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
+                });
+                if (p != null)
+                {
+                    var line = p.StandardOutput.ReadLine();
+                    p.WaitForExit();
+                    if (!string.IsNullOrWhiteSpace(line) && File.Exists(line.Trim()))
+                        return line.Trim();
+                }
+            }
+            catch { }
+        }
+        return "powershell.exe";
     }
 
     private void OnReauthClicked(object sender, RoutedEventArgs e)
@@ -1579,7 +1787,7 @@ public partial class MainWindow : Window
         var cacheDir = cfg.ModCacheDir ?? AppPaths.DefaultModCacheDir;
         Directory.CreateDirectory(cacheDir);
 
-        var ids = ModStorage.LoadIds(AppPaths.ModsTxtPath).ToList();
+        var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
         if (ids.Count == 0)
         {
             ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: "mods.txt empty");
@@ -1668,7 +1876,7 @@ public partial class MainWindow : Window
             return new List<string>();
         }
 
-        var ids = ModStorage.LoadIds(AppPaths.ModsTxtPath).ToList();
+        var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
         try
         {
             var result = SteamCmdClient.DeployMods(
@@ -1712,8 +1920,11 @@ public partial class MainWindow : Window
 
         try
         {
+            var excluded = ReadExcludedXmlGenDirs();
+            if (excluded is { Count: > 0 })
+                AppendLogLine($"[manager] pre-start merge: excluding {excluded.Count} dir(s)");
             AppendLogLine($"[manager] pre-start merge: {preset.DisplayName} -> {outFile}");
-            await Task.Run(() => XmlMergeService.Generate(root, preset, mergeMode, outFile));
+            await Task.Run(() => XmlMergeService.Generate(root, preset, mergeMode, outFile, excluded));
             return true;
         }
         catch (Exception ex)
