@@ -1267,6 +1267,10 @@ public partial class MainWindow : Window
 
     private void UpdateServerModeVisibility()
     {
+        // Event can fire during XAML parsing before all named controls are initialized.
+        if (ModePs1Radio == null || ModePs1Panel == null || ModeDirectPanel == null
+            || ServerUpdateModsButton == null || ServerReauthButton == null) return;
+
         var isPs1 = ModePs1Radio.IsChecked == true;
         ModePs1Panel.Visibility = isPs1 ? Visibility.Visible : Visibility.Collapsed;
         ModeDirectPanel.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
