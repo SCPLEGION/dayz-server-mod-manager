@@ -11,5 +11,7 @@ internal sealed record ServerLaunchSpec(
     int? Port,
     string? ExtraArgs,
     bool BattlEye,
-    IReadOnlyList<string> DeployedAtNames
+    IReadOnlyList<string> DeployedAtNames,
+    string Ps1LaunchParam = "default",
+    string Ps1AppBranch = "stable"
 );

@@ -239,11 +239,15 @@ internal sealed class ServerProcessController : IDisposable
         if (string.IsNullOrWhiteSpace(spec.Ps1Path) || !File.Exists(spec.Ps1Path))
             throw new FileNotFoundException("servermanager.ps1 not found.", spec.Ps1Path ?? "(unset)");
 
+        var lp = string.IsNullOrWhiteSpace(spec.Ps1LaunchParam) ? "default" : spec.Ps1LaunchParam;
+        var app = string.IsNullOrWhiteSpace(spec.Ps1AppBranch) ? "stable" : spec.Ps1AppBranch;
+
+        // servermanager.ps1 -s start -lp <default|user> -app <stable|exp>
         var pwsh = ResolvePowerShell();
         var psi = new ProcessStartInfo
         {
             FileName = pwsh,
-            Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{spec.Ps1Path}\"",
+            Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{spec.Ps1Path}\" -s start -lp {lp} -app {app}",
             UseShellExecute = false,
             CreateNoWindow = false,
             WorkingDirectory = Path.GetDirectoryName(spec.Ps1Path) ?? string.Empty,
