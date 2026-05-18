@@ -1,16 +1,17 @@
 using System;
-using System.Text.Json;
-using System.IO;
-using System.Linq;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using DayZModManager.Services;
 
 namespace DayZModManager;
 
+/// <summary>
+/// Mod add/remove history, backed by the <c>mod_events</c> table.
+/// </summary>
 internal static class HistoryLogger
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
-    private static string HistoryPath => Path.Combine(AppContext.BaseDirectory, "mods_history.jsonl");
 
     public sealed record Entry(
         DateTimeOffset Timestamp,
@@ -22,37 +23,49 @@ internal static class HistoryLogger
 
     public static void Append(string action, IEnumerable<ulong> added, IEnumerable<ulong> removed, string source)
     {
-        var entry = new Entry(
-            Timestamp: DateTimeOffset.UtcNow,
-            Action: action,
-            Added: added.ToList(),
-            Removed: removed.ToList(),
-            Source: source
-        );
+        var addedList = added.ToList();
+        var removedList = removed.ToList();
 
-        Directory.CreateDirectory(Path.GetDirectoryName(HistoryPath)!);
-        File.AppendAllText(HistoryPath, JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine);
+        using var conn = Database.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO mod_events
+            (timestamp_utc, action, added_json, removed_json, source)
+            VALUES ($t,$a,$ad,$rm,$s)";
+        cmd.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$a", action);
+        cmd.Parameters.AddWithValue("$ad", JsonSerializer.Serialize(addedList, JsonOptions));
+        cmd.Parameters.AddWithValue("$rm", JsonSerializer.Serialize(removedList, JsonOptions));
+        cmd.Parameters.AddWithValue("$s", source);
+        cmd.ExecuteNonQuery();
     }
 
     public static List<Entry> LoadRecent(int count)
     {
-        if (!File.Exists(HistoryPath))
-            return new List<Entry>();
+        var rows = new List<Entry>();
+        using var conn = Database.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT timestamp_utc, action, added_json, removed_json, source
+                            FROM mod_events
+                            ORDER BY id DESC
+                            LIMIT $n";
+        cmd.Parameters.AddWithValue("$n", count);
 
-        var lines = File.ReadAllLines(HistoryPath);
-        var take = lines.Reverse().Take(count);
-        var result = new List<Entry>();
-        foreach (var line in take)
+        using var rd = cmd.ExecuteReader();
+        while (rd.Read())
         {
-            try
-            {
-                var e = JsonSerializer.Deserialize<Entry>(line, JsonOptions);
-                if (e != null) result.Add(e);
-            }
-            catch { /* ignore */ }
+            var added = DeserializeIdList(rd.GetString(2));
+            var removed = DeserializeIdList(rd.GetString(3));
+            if (!DateTimeOffset.TryParse(rd.GetString(0), out var ts))
+                ts = DateTimeOffset.UtcNow;
+            rows.Add(new Entry(ts, rd.GetString(1), added, removed, rd.GetString(4)));
         }
+        rows.Reverse(); // return ascending by time, same as the legacy implementation
+        return rows;
+    }
 
-        result.Reverse();
-        return result;
+    private static List<ulong> DeserializeIdList(string json)
+    {
+        try { return JsonSerializer.Deserialize<List<ulong>>(json, JsonOptions) ?? new(); }
+        catch { return new List<ulong>(); }
     }
 }

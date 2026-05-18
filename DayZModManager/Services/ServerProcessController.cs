@@ -270,6 +270,9 @@ internal sealed class ServerProcessController : IDisposable
         if (spec.DeployedAtNames.Count > 0)
             args.Append("\"-mod=").Append(string.Join(";", spec.DeployedAtNames)).Append("\" ");
 
+        if (spec.DeployedServerModNames is { Count: > 0 })
+            args.Append("\"-servermod=").Append(string.Join(";", spec.DeployedServerModNames)).Append("\" ");
+
         if (spec.BattlEye)
             args.Append("-BEpath=battleye ");
         else

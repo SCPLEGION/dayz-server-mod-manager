@@ -842,13 +842,15 @@
                                             <TextBox x:Name="SteamCmdPathTextBox"/>
                                         </DockPanel>
 
-                                        <TextBlock Text="MOD CACHE DIR (+force_install_dir; persists across runs)"
+                                        <TextBlock Text="MOD CACHE DIR (auto = SteamCMD dir; workshop content lives under it)"
                                                    Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
                                         <DockPanel LastChildFill="True" Margin="0,0,0,6">
                                             <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
+                                                    IsEnabled="False"
                                                     Click="OnServerBrowseModCache"/>
                                             <TextBox x:Name="ModCacheDirTextBox"
-                                                     ToolTip="SteamCMD downloads mods here. Don't delete it unless you want a full re-download next time."/>
+                                                     IsReadOnly="True"
+                                                     ToolTip="Auto-derived from steamcmd.exe path. Workshop content goes to &lt;dir&gt;\steamapps\workshop\content\&lt;appid&gt;\..., then is copied/linked into the server root."/>
                                         </DockPanel>
 
                                         <Grid Margin="0,4,0,6">

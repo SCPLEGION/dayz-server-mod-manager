@@ -105,4 +105,18 @@ public sealed class ServerConfig
 
     [JsonPropertyName("validateMods")]
     public bool ValidateMods { get; set; }
+
+    /// <summary>
+    /// When true, the locally-built manager companion mod (e.g. <c>@DayZAIBalancer</c>) is
+    /// staged into <see cref="ServerRootDir"/> on start/update and passed via <c>-servermod=</c>.
+    /// </summary>
+    [JsonPropertyName("autoDeployManagerMod")]
+    public bool AutoDeployManagerMod { get; set; } = true;
+
+    /// <summary>
+    /// Source folder for the manager companion mod. If null/empty, the manager looks beside the
+    /// exe for <c>@DayZAIBalancer</c>, then falls back to <c>../artifacts/pbo/@DayZAIBalancer</c>.
+    /// </summary>
+    [JsonPropertyName("managerModSourceDir")]
+    public string? ManagerModSourceDir { get; set; }
 }

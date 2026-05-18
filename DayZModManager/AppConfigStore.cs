@@ -1,10 +1,14 @@
 using System.Collections.Generic;
 using System.Text.Json;
-using System.IO;
 using DayZModManager.Models;
+using DayZModManager.Services;
 
 namespace DayZModManager;
 
+/// <summary>
+/// Single-row app config, backed by the <c>app_config</c> table. The JSON shape is unchanged
+/// from the legacy <c>config.json</c> file so we can round-trip in/out via the same DTO.
+/// </summary>
 internal sealed class AppConfigStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -25,17 +29,19 @@ internal sealed class AppConfigStore
         public AiBalancerConfig? AiBalancer { get; set; }
     }
 
-    public static string ConfigPath => Path.Combine(AppContext.BaseDirectory, "config.json");
-
     public static Config Load()
     {
         try
         {
-            if (!File.Exists(ConfigPath))
-                return new Config();
+            using var conn = Database.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT json_blob FROM app_config WHERE id = 1";
+            var raw = cmd.ExecuteScalar() as string;
+            if (string.IsNullOrWhiteSpace(raw)) return new Config();
 
-            var json = File.ReadAllText(ConfigPath);
-            return JsonSerializer.Deserialize<Config>(json, JsonOptions) ?? new Config();
+            // The blob also carries Migrations._markers; deserialize loosely so unknown keys
+            // (markers) are silently ignored.
+            return JsonSerializer.Deserialize<Config>(raw, JsonOptions) ?? new Config();
         }
         catch
         {
@@ -45,10 +51,48 @@ internal sealed class AppConfigStore
 
     public static void Save(Config config)
     {
-        var dir = Path.GetDirectoryName(ConfigPath);
-        if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
-            Directory.CreateDirectory(dir);
+        using var conn = Database.Open();
 
-        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(config, JsonOptions));
+        // Preserve the _markers field (migration bookkeeping) that we don't want to round-trip
+        // through the typed Config DTO.
+        string? markersJson = null;
+        using (var read = conn.CreateCommand())
+        {
+            read.CommandText = "SELECT json_blob FROM app_config WHERE id = 1";
+            var existing = read.ExecuteScalar() as string;
+            if (!string.IsNullOrEmpty(existing))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(existing);
+                    if (doc.RootElement.TryGetProperty("_markers", out var m))
+                        markersJson = m.GetRawText();
+                }
+                catch { }
+            }
+        }
+
+        // Serialize the typed config and re-graft _markers if present.
+        var typedJson = JsonSerializer.Serialize(config, JsonOptions);
+        string blob = typedJson;
+        if (!string.IsNullOrEmpty(markersJson))
+        {
+            var trimmed = typedJson.TrimEnd();
+            if (trimmed.EndsWith("}"))
+            {
+                var head = trimmed.Substring(0, trimmed.Length - 1).TrimEnd();
+                var sep = head.EndsWith("{") ? string.Empty : ",";
+                blob = head + sep + "\"_markers\":" + markersJson + "}";
+            }
+        }
+
+        using var upsert = conn.CreateCommand();
+        upsert.CommandText = @"
+            INSERT INTO app_config (id, json_blob) VALUES (1, $b)
+            ON CONFLICT(id) DO UPDATE SET json_blob = excluded.json_blob,
+                                          updated_utc = strftime('%Y-%m-%dT%H:%M:%fZ','now');
+        ";
+        upsert.Parameters.AddWithValue("$b", blob);
+        upsert.ExecuteNonQuery();
     }
 }
