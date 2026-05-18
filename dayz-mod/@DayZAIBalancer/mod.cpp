@@ -1,0 +1,11 @@
+name = "DayZ AI Balancer";
+picture = "";
+logo = "";
+action = "";
+actionName = "";
+description = "Collects live economy data and sends to AI Balancer. Requires Expansion or CF.";
+author = "SCPLEGION";
+authorUrl = "";
+version = "1.0";
+versionAr[] = {1, 0};
+dependencies[] = {"Community-Online-Tools", "Expansion-Core"};

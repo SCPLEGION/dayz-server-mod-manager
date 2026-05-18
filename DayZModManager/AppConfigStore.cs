@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 using System.IO;
+using DayZModManager.Models;
 
 namespace DayZModManager;
 
@@ -21,6 +22,7 @@ internal sealed class AppConfigStore
         /// <summary>Mod-folder names (just the leaf name, e.g. "@CF") excluded from XML auto-generation.</summary>
         public List<string>? ExcludedXmlGenDirs { get; set; }
         public ServerConfig? Server { get; set; }
+        public AiBalancerConfig? AiBalancer { get; set; }
     }
 
     public static string ConfigPath => Path.Combine(AppContext.BaseDirectory, "config.json");
