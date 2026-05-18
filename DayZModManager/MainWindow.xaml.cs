@@ -1239,7 +1239,12 @@ public partial class MainWindow : Window
         ServerBattlEyeCheckBox.IsChecked = cfg.BattlEye;
 
         SteamCmdPathTextBox.Text = cfg.SteamCmdPath ?? string.Empty;
-        ModCacheDirTextBox.Text = cfg.ModCacheDir ?? AppPaths.DefaultModCacheDir;
+        // Workshop content lives next to steamcmd.exe — surface the derived path so users see
+        // exactly where mods are downloaded. `ModCacheDir` from the profile is shown only as
+        // a fallback for back-compat; runtime always uses the SteamCMD-derived root.
+        ModCacheDirTextBox.Text = !string.IsNullOrWhiteSpace(cfg.SteamCmdPath)
+            ? (Path.GetDirectoryName(Path.GetFullPath(cfg.SteamCmdPath)) ?? string.Empty)
+            : (cfg.ModCacheDir ?? AppPaths.DefaultModCacheDir);
         SteamLoginTextBox.Text = cfg.SteamLogin ?? string.Empty;
         if (cfg.LoginMode == SteamLoginMode.Anonymous) LoginAnonymousRadio.IsChecked = true;
         else LoginInteractiveRadio.IsChecked = true;
@@ -1450,6 +1455,8 @@ public partial class MainWindow : Window
         if (ofd.ShowDialog() == true)
         {
             SteamCmdPathTextBox.Text = ofd.FileName;
+            // Mirror SteamCMD root into the cache textbox — runtime uses this derived path.
+            try { ModCacheDirTextBox.Text = Path.GetDirectoryName(Path.GetFullPath(ofd.FileName)) ?? string.Empty; } catch { }
             try { PersistAllDirsToConfig(); } catch { }
         }
     }
@@ -1529,6 +1536,7 @@ public partial class MainWindow : Window
         try
         {
             var deployed = new List<string>();
+            var deployedServer = new List<string>();
             if (cfg.Mode == ServerLaunchMode.DirectExe)
             {
                 // Auto-update + deploy if requested.
@@ -1543,7 +1551,7 @@ public partial class MainWindow : Window
                     }
                 }
 
-                deployed = DeployMods(cfg);
+                (deployed, deployedServer) = DeployMods(cfg);
             }
 
             if (cfg.RunPreStartMerge)
@@ -1570,7 +1578,8 @@ public partial class MainWindow : Window
                 BattlEye: cfg.BattlEye,
                 DeployedAtNames: deployed,
                 Ps1LaunchParam: cfg.Ps1LaunchParam,
-                Ps1AppBranch: cfg.Ps1AppBranch
+                Ps1AppBranch: cfg.Ps1AppBranch,
+                DeployedServerModNames: deployedServer
             );
 
             ServerActionStatusText.Text = "starting…";
@@ -1621,11 +1630,13 @@ public partial class MainWindow : Window
         try
         {
             ServerActionStatusText.Text = "restarting…";
-            var deployed = cfg.Mode == ServerLaunchMode.DirectExe ? DeployMods(cfg) : new List<string>();
+            var (deployed, deployedServer) = cfg.Mode == ServerLaunchMode.DirectExe
+                ? DeployMods(cfg)
+                : (new List<string>(), new List<string>());
             var spec = new ServerLaunchSpec(
                 cfg.Mode, cfg.Ps1Path, cfg.ExePath, cfg.ProfileDir, cfg.ServerRootDir,
                 cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed,
-                cfg.Ps1LaunchParam, cfg.Ps1AppBranch);
+                cfg.Ps1LaunchParam, cfg.Ps1AppBranch, deployedServer);
             await _server.RestartAsync(spec);
             ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
         }
@@ -1784,7 +1795,16 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var cacheDir = cfg.ModCacheDir ?? AppPaths.DefaultModCacheDir;
+        // Unified storage: SteamCMD downloads into its own dir (`<steamcmdRoot>/steamapps/workshop/...`).
+        // The legacy `ModCacheDir` setting is ignored at runtime; profiles keep it for back-compat only.
+        string cacheDir;
+        try { cacheDir = SteamCmdInstallRoot(cfg); }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] {ex.Message}");
+            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: ex.Message);
+            return false;
+        }
         Directory.CreateDirectory(cacheDir);
 
         var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
@@ -1863,41 +1883,171 @@ public partial class MainWindow : Window
         return ok;
     }
 
-    private List<string> DeployMods(ServerConfig cfg)
+    private (List<string> ClientMods, List<string> ServerMods) DeployMods(ServerConfig cfg)
     {
+        var empty = (new List<string>(), new List<string>());
         if (string.IsNullOrWhiteSpace(cfg.ServerRootDir))
         {
             AppendLogLine("[manager] server root dir not set — skipping deploy.");
-            return new List<string>();
+            return empty;
         }
-        if (string.IsNullOrWhiteSpace(cfg.ModCacheDir))
+        if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath))
         {
-            AppendLogLine("[manager] mod cache dir not set — skipping deploy.");
-            return new List<string>();
+            AppendLogLine("[manager] steamcmd.exe path not set — skipping deploy.");
+            return empty;
+        }
+
+        string workshopRoot;
+        try { workshopRoot = SteamCmdInstallRoot(cfg); }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] {ex.Message}");
+            return empty;
         }
 
         var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
+        var names = new List<string>();
         try
         {
             var result = SteamCmdClient.DeployMods(
-                cfg.ModCacheDir!,
+                workshopRoot,
                 cfg.WorkshopAppId,
                 ids,
                 cfg.ServerRootDir!,
                 cfg.DeployMode);
 
-            var names = result.Select(r => r.AtName).ToList();
+            names = result.Select(r => r.AtName).ToList();
             ServerHistoryLogger.Append("mods-deployed", cfg.Mode.ToString(),
                 detail: $"count={names.Count} mode={cfg.DeployMode}");
             AppendLogLine($"[manager] deployed {names.Count} mods to {cfg.ServerRootDir}");
-            return names;
         }
         catch (Exception ex)
         {
             AppendLogLine($"[manager] deploy failed: {ex.Message}");
             ServerHistoryLogger.Append("mods-deploy-failed", cfg.Mode.ToString(), detail: ex.Message);
-            return new List<string>();
+            return empty;
         }
+
+        var serverMods = new List<string>();
+        if (cfg.AutoDeployManagerMod)
+        {
+            var atName = DeployManagerMod(cfg);
+            if (!string.IsNullOrEmpty(atName))
+                serverMods.Add(atName!);
+        }
+
+        return (names, serverMods);
+    }
+
+    /// <summary>
+    /// Stages the manager companion mod (e.g. <c>@DayZAIBalancer</c>) into <c>cfg.ServerRootDir</c>
+    /// using the same deploy mode as workshop mods, and returns its <c>@</c>-name. Returns null
+    /// if the source folder cannot be found or deploy fails.
+    /// </summary>
+    private string? DeployManagerMod(ServerConfig cfg)
+    {
+        var source = ResolveManagerModSource(cfg);
+        if (source == null)
+        {
+            AppendLogLine("[manager] manager mod source not found — skipping companion deploy.");
+            return null;
+        }
+
+        var atName = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrEmpty(atName)) return null;
+        if (!atName.StartsWith("@", StringComparison.Ordinal)) atName = "@" + atName;
+
+        var target = Path.Combine(cfg.ServerRootDir!, atName);
+        try
+        {
+            // Always refresh: remove existing entry (junction or copy) so updates flow through.
+            if (Directory.Exists(target))
+            {
+                var info = new DirectoryInfo(target);
+                if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+                    Directory.Delete(target, recursive: false);
+                else
+                    Directory.Delete(target, recursive: true);
+            }
+
+            switch (cfg.DeployMode)
+            {
+                case ModDeployMode.Junction:
+                    var psi = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{target}\" \"{source}\"")
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                    };
+                    using (var proc = Process.Start(psi))
+                    {
+                        if (proc == null) throw new IOException("mklink launch failed");
+                        proc.WaitForExit();
+                        if (proc.ExitCode != 0)
+                            throw new IOException($"mklink /J failed: {proc.StandardError.ReadToEnd()}");
+                    }
+                    break;
+                case ModDeployMode.Symlink:
+                    Directory.CreateSymbolicLink(target, source);
+                    break;
+                case ModDeployMode.Copy:
+                default:
+                    CopyDirectoryRecursive(source, target);
+                    break;
+            }
+
+            AppendLogLine($"[manager] staged companion mod {atName} ({cfg.DeployMode}) <- {source}");
+            ServerHistoryLogger.Append("manager-mod-deployed", cfg.Mode.ToString(),
+                detail: $"name={atName} mode={cfg.DeployMode}");
+            return atName;
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] companion mod deploy failed: {ex.Message}");
+            ServerHistoryLogger.Append("manager-mod-deploy-failed", cfg.Mode.ToString(), detail: ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the SteamCMD install directory (parent of <c>steamcmd.exe</c>). Workshop content
+    /// lands at <c>&lt;root&gt;/steamapps/workshop/content/&lt;appId&gt;/&lt;id&gt;</c>; this is the
+    /// single source of truth for downloads — server-root deploys are copies/links of those folders.
+    /// </summary>
+    private static string SteamCmdInstallRoot(ServerConfig cfg)
+    {
+        if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath))
+            throw new InvalidOperationException("SteamCMD path is not set.");
+        var dir = Path.GetDirectoryName(Path.GetFullPath(cfg.SteamCmdPath));
+        if (string.IsNullOrWhiteSpace(dir))
+            throw new InvalidOperationException("Cannot resolve SteamCMD directory from path.");
+        return dir;
+    }
+
+    private static string? ResolveManagerModSource(ServerConfig cfg)
+    {
+        if (!string.IsNullOrWhiteSpace(cfg.ManagerModSourceDir) && Directory.Exists(cfg.ManagerModSourceDir))
+            return Path.GetFullPath(cfg.ManagerModSourceDir!);
+
+        var candidates = new[]
+        {
+            Path.Combine(AppPaths.ExeDir, "@DayZAIBalancer"),
+            Path.GetFullPath(Path.Combine(AppPaths.ExeDir, "..", "artifacts", "pbo", "@DayZAIBalancer")),
+            Path.GetFullPath(Path.Combine(AppPaths.ExeDir, "..", "..", "artifacts", "pbo", "@DayZAIBalancer")),
+        };
+        foreach (var c in candidates)
+            if (Directory.Exists(c)) return c;
+        return null;
+    }
+
+    private static void CopyDirectoryRecursive(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var dir in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(dir.Replace(source, target));
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+            File.Copy(file, file.Replace(source, target), overwrite: true);
     }
 
     // ---- Pre-start XML merge (reuses XmlMergeService — same path as the Combine button) ----

@@ -1,17 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
 
 namespace DayZModManager.Services;
 
+/// <summary>
+/// Server start/stop/crash/auto-restart events, backed by the <c>server_events</c> table.
+/// </summary>
 internal static class ServerHistoryLogger
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
-    private static string HistoryPath => Path.Combine(AppContext.BaseDirectory, "server_history.jsonl");
-
     public sealed record ServerEvent(
         DateTimeOffset Timestamp,
         string Action,
@@ -23,29 +19,42 @@ internal static class ServerHistoryLogger
 
     public static void Append(string action, string mode, int? pid = null, int? exitCode = null, string? detail = null)
     {
-        var entry = new ServerEvent(DateTimeOffset.UtcNow, action, mode, pid, exitCode, detail);
-        Directory.CreateDirectory(Path.GetDirectoryName(HistoryPath)!);
-        File.AppendAllText(HistoryPath, JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine);
+        using var conn = Database.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO server_events
+            (timestamp_utc, action, mode, pid, exit_code, detail)
+            VALUES ($t,$a,$mo,$p,$ec,$d)";
+        cmd.Parameters.AddWithValue("$t", DateTimeOffset.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$a", action);
+        cmd.Parameters.AddWithValue("$mo", mode);
+        cmd.Parameters.AddWithValue("$p", (object?)pid ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ec", (object?)exitCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$d", (object?)detail ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
     }
 
     public static List<ServerEvent> LoadRecent(int count)
     {
-        if (!File.Exists(HistoryPath))
-            return new List<ServerEvent>();
+        var rows = new List<ServerEvent>();
+        using var conn = Database.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT timestamp_utc, action, mode, pid, exit_code, detail
+                            FROM server_events
+                            ORDER BY id DESC
+                            LIMIT $n";
+        cmd.Parameters.AddWithValue("$n", count);
 
-        var lines = File.ReadAllLines(HistoryPath);
-        var take = lines.Reverse().Take(count);
-        var result = new List<ServerEvent>();
-        foreach (var line in take)
+        using var rd = cmd.ExecuteReader();
+        while (rd.Read())
         {
-            try
-            {
-                var e = JsonSerializer.Deserialize<ServerEvent>(line, JsonOptions);
-                if (e != null) result.Add(e);
-            }
-            catch { /* ignore malformed lines */ }
+            if (!DateTimeOffset.TryParse(rd.GetString(0), out var ts))
+                ts = DateTimeOffset.UtcNow;
+            int? pid = rd.IsDBNull(3) ? null : rd.GetInt32(3);
+            int? ec  = rd.IsDBNull(4) ? null : rd.GetInt32(4);
+            string? detail = rd.IsDBNull(5) ? null : rd.GetString(5);
+            rows.Add(new ServerEvent(ts, rd.GetString(1), rd.GetString(2), pid, ec, detail));
         }
-        result.Reverse();
-        return result;
+        rows.Reverse();
+        return rows;
     }
 }

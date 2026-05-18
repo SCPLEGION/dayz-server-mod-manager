@@ -62,28 +62,33 @@ public sealed class EconomyApiListener : IDisposable
 
     public void LoadRecentFromDisk()
     {
+        // Backed by SQLite (economy_snapshots). Method name kept for caller compatibility.
         try
         {
-            var dir = SnapshotsDir;
-            var files = new DirectoryInfo(dir)
-                .GetFiles("*.json")
-                .OrderByDescending(f => f.LastWriteTimeUtc)
-                .Take(InMemoryBufferSize)
-                .OrderBy(f => f.LastWriteTimeUtc)
-                .ToList();
+            using var conn = Database.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"SELECT json_blob FROM economy_snapshots
+                                ORDER BY timestamp_unix DESC
+                                LIMIT $n";
+            cmd.Parameters.AddWithValue("$n", InMemoryBufferSize);
 
-            foreach (var f in files)
+            var blobs = new List<string>();
+            using (var rd = cmd.ExecuteReader())
+                while (rd.Read()) blobs.Add(rd.GetString(0));
+
+            // Reverse so we replay oldest→newest into the ring buffer.
+            blobs.Reverse();
+            foreach (var blob in blobs)
             {
                 try
                 {
-                    var snap = JsonSerializer.Deserialize<EconomySnapshot>(File.ReadAllText(f.FullName), JsonOptions);
-                    if (snap != null)
-                        AppendToBuffer(snap);
+                    var snap = JsonSerializer.Deserialize<EconomySnapshot>(blob, JsonOptions);
+                    if (snap != null) AppendToBuffer(snap);
                 }
-                catch { /* skip corrupt */ }
+                catch { /* skip corrupt row */ }
             }
         }
-        catch { /* dir issues */ }
+        catch { /* db issues — buffer stays empty */ }
     }
 
     public void Start(int port, string secret)
@@ -230,19 +235,28 @@ public sealed class EconomyApiListener : IDisposable
     {
         try
         {
-            var dir = SnapshotsDir;
-            var file = Path.Combine(dir, $"{snap.Timestamp}.json");
-            File.WriteAllText(file, JsonSerializer.Serialize(snap, JsonOptions));
-
-            // Prune
-            var all = new DirectoryInfo(dir).GetFiles("*.json")
-                .OrderByDescending(f => f.LastWriteTimeUtc).ToList();
-            if (all.Count > MaxSnapshotFiles)
+            var blob = JsonSerializer.Serialize(snap, JsonOptions);
+            using var conn = Database.Open();
+            using (var ins = conn.CreateCommand())
             {
-                foreach (var old in all.Skip(MaxSnapshotFiles))
-                {
-                    try { old.Delete(); } catch { }
-                }
+                ins.CommandText = @"INSERT OR REPLACE INTO economy_snapshots
+                                    (timestamp_unix, json_blob)
+                                    VALUES ($ts, $b)";
+                ins.Parameters.AddWithValue("$ts", snap.Timestamp);
+                ins.Parameters.AddWithValue("$b", blob);
+                ins.ExecuteNonQuery();
+            }
+            // Prune to MaxSnapshotFiles rows, oldest first.
+            using (var prune = conn.CreateCommand())
+            {
+                prune.CommandText = @"DELETE FROM economy_snapshots
+                    WHERE timestamp_unix IN (
+                        SELECT timestamp_unix FROM economy_snapshots
+                        ORDER BY timestamp_unix DESC
+                        LIMIT -1 OFFSET $keep
+                    )";
+                prune.Parameters.AddWithValue("$keep", MaxSnapshotFiles);
+                prune.ExecuteNonQuery();
             }
         }
         catch (Exception ex)
