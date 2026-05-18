@@ -20,6 +20,9 @@ public partial class AiBalancerTab : UserControl
     private readonly EconomyApiListener _listener = new();
     private readonly AiBalancerService _ai = new();
     private readonly XmlApplyService _xml = new();
+    private readonly ServerFilesService _serverFiles = new();
+    private readonly AiTaskService _taskAi = new();
+    private readonly TaskApplyService _taskApply = new();
     private readonly System.Windows.Threading.DispatcherTimer _statusTimer;
 
     private readonly ObservableCollection<EconomyRowViewModel> _allEconomy = new();
@@ -27,6 +30,9 @@ public partial class AiBalancerTab : UserControl
     private readonly ObservableCollection<SuggestionRowViewModel> _allSuggestions = new();
     private readonly ObservableCollection<SuggestionRowViewModel> _viewSuggestions = new();
     private readonly ObservableCollection<WorkerCardViewModel> _workers = new();
+    private readonly ObservableCollection<TaskAction> _taskActions = new();
+
+    private ServerFilesSnapshot? _serverFilesSnap;
 
     private CancellationTokenSource? _runCts;
     private AiBalancerConfig _cfg = new();
@@ -39,6 +45,7 @@ public partial class AiBalancerTab : UserControl
         EconomyGrid.ItemsSource = _viewEconomy;
         SuggestionsGrid.ItemsSource = _viewSuggestions;
         WorkersList.ItemsSource = _workers;
+        TaskPlanGrid.ItemsSource = _taskActions;
 
         _listener.SnapshotReceived += OnSnapshotReceived;
         _listener.LogMessage += (_, m) => AppendLog(m);
@@ -94,6 +101,8 @@ public partial class AiBalancerTab : UserControl
         EventsXmlPathBox.Text = cfg.EventsXmlPath ?? string.Empty;
         GlobalsXmlPathBox.Text = cfg.GlobalsXmlPath ?? string.Empty;
         SpawnableTypesXmlPathBox.Text = cfg.SpawnableTypesXmlPath ?? string.Empty;
+        ServerRootPathBox.Text = cfg.ServerRootPath ?? string.Empty;
+        MissionPathBox.Text = cfg.MissionPath ?? string.Empty;
         BackupCheck.IsChecked = cfg.BackupBeforeApply;
     }
 
@@ -125,6 +134,8 @@ public partial class AiBalancerTab : UserControl
             EventsXmlPath = EventsXmlPathBox.Text?.Trim() ?? string.Empty,
             GlobalsXmlPath = GlobalsXmlPathBox.Text?.Trim() ?? string.Empty,
             SpawnableTypesXmlPath = SpawnableTypesXmlPathBox.Text?.Trim() ?? string.Empty,
+            ServerRootPath = ServerRootPathBox.Text?.Trim() ?? string.Empty,
+            MissionPath = MissionPathBox.Text?.Trim() ?? string.Empty,
             BackupBeforeApply = BackupCheck.IsChecked ?? true,
             AutoStartListener = _cfg.AutoStartListener,
         };
@@ -679,5 +690,155 @@ public partial class AiBalancerTab : UserControl
                 LogBox.Text = string.Join('\n', lines.Skip(lines.Length - 50));
             LogBox.ScrollToEnd();
         });
+    }
+
+    // ───────────────── Server files / AI tasks ─────────────────
+
+    private void OnBrowseServerRoot(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "DayZ server exe (DayZServer_x64.exe)|DayZServer_x64.exe|All files (*.*)|*.*",
+            Title = "Select DayZ server folder (pick any file inside it)",
+        };
+        if (dlg.ShowDialog() == true)
+            ServerRootPathBox.Text = Path.GetDirectoryName(dlg.FileName) ?? dlg.FileName;
+    }
+
+    private void OnBrowseMission(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Mission init (init.c)|init.c|All files (*.*)|*.*",
+            Title = "Select mission folder (pick init.c inside it)",
+        };
+        if (dlg.ShowDialog() == true)
+            MissionPathBox.Text = Path.GetDirectoryName(dlg.FileName) ?? dlg.FileName;
+    }
+
+    private void OnDiscoverServerFiles(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var root = ServerRootPathBox.Text?.Trim() ?? string.Empty;
+            var mission = MissionPathBox.Text?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(root) && string.IsNullOrEmpty(mission))
+            {
+                MessageBox.Show("Set the server root or mission folder first.", "AI Balancer",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            _serverFilesSnap = _serverFiles.Discover(root, mission);
+            var found = _serverFilesSnap.Files.Count(f => f.Exists);
+            ServerFilesSummaryText.Text = $"{found}/{_serverFilesSnap.Files.Count} server files found.";
+            AppendLog($"Discovered {found} server file(s) under root='{root}', mission='{mission}'.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Discover failed: " + ex.Message);
+        }
+    }
+
+    private async void OnPlanTaskClick(object sender, RoutedEventArgs e)
+    {
+        var prompt = AiTaskPromptBox.Text?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            MessageBox.Show("Type a request first (e.g. 'set day to 2h and night to 15min').",
+                "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(ApiKeyBox.Password))
+        {
+            MessageBox.Show("Enter your OpenAI API key.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (_serverFilesSnap == null)
+            OnDiscoverServerFiles(this, e);
+        if (_serverFilesSnap == null) return;
+
+        _cfg = CaptureConfigFromUi();
+        var opts = new AiTaskOptions
+        {
+            ApiKey = ApiKeyBox.Password,
+            Model = _cfg.OpenAiModel,
+            ServerType = _cfg.ServerType,
+        };
+
+        _taskActions.Clear();
+        TaskNotesText.Text = string.Empty;
+        TaskTokensText.Text = string.Empty;
+        BtnPlanTask.IsEnabled = false;
+        BtnApplyTaskPlan.IsEnabled = false;
+        AppendLog("AI task planner: requesting plan...");
+
+        try
+        {
+            var progress = new Progress<string>(AppendLog);
+            var proposal = await Task.Run(() =>
+                _taskAi.ProposeAsync(prompt, _serverFilesSnap, opts, progress, CancellationToken.None));
+
+            foreach (var a in proposal.Actions) _taskActions.Add(a);
+            TaskNotesText.Text = proposal.Notes ?? string.Empty;
+            TaskTokensText.Text = proposal.TokensUsed > 0 ? $"Tokens: {proposal.TokensUsed:N0}" : string.Empty;
+            BtnApplyTaskPlan.IsEnabled = _taskActions.Count > 0;
+            AppendLog($"AI task planner: {_taskActions.Count} action(s) proposed.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("AI task planner failed: " + ex.Message);
+            MessageBox.Show("Plan failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            BtnPlanTask.IsEnabled = true;
+        }
+    }
+
+    private void OnApplyTaskPlanClick(object sender, RoutedEventArgs e)
+    {
+        var approved = _taskActions.Where(a => a.IsApproved).ToList();
+        if (approved.Count == 0)
+        {
+            MessageBox.Show("Nothing approved.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var summary = string.Join("\n", approved.Take(8).Select(a => "  • " + a.Summary));
+        if (approved.Count > 8) summary += $"\n  …and {approved.Count - 8} more";
+        var confirm = MessageBox.Show(
+            $"Apply {approved.Count} approved action(s)?\n\n{summary}\n\n" +
+            (TaskBackupCheck.IsChecked == true ? "Files will be backed up first." : "No backup will be created."),
+            "Confirm AI task apply", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        try
+        {
+            var proposal = new TaskProposal { Actions = _taskActions.ToList() };
+            var result = _taskApply.Apply(proposal, TaskBackupCheck.IsChecked == true);
+            var msg = $"Applied: {result.Applied}\nSkipped: {result.Skipped}\nErrors: {result.Errors.Count}";
+            if (result.BackupPaths.Count > 0)
+                msg += "\nBackups: " + result.BackupPaths.Count;
+            if (result.Errors.Count > 0)
+                msg += "\nFirst error: " + result.Errors[0];
+            MessageBox.Show(msg, "AI task apply", MessageBoxButton.OK, MessageBoxImage.Information);
+            AppendLog($"AI task apply: {result.Applied} applied, {result.Skipped} skipped, {result.Errors.Count} errors.");
+
+            // If any RunBalance action was approved, trigger the balancer now.
+            if (approved.Any(a => a.Kind == TaskActionKind.RunBalance))
+                OnRunBalancerClick(this, e);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Apply failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void OnClearTaskPlanClick(object sender, RoutedEventArgs e)
+    {
+        _taskActions.Clear();
+        TaskNotesText.Text = string.Empty;
+        TaskTokensText.Text = string.Empty;
+        BtnApplyTaskPlan.IsEnabled = false;
     }
 }

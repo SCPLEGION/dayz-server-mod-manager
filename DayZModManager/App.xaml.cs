@@ -27,6 +27,13 @@ public partial class App : Application
             return;
         }
 
+        if (args.Length >= 2 && args[1].Equals("mcp-server", StringComparison.OrdinalIgnoreCase))
+        {
+            var code = McpServerCli.Run(args);
+            Shutdown(code);
+            return;
+        }
+
         base.OnStartup(e);
     }
 }

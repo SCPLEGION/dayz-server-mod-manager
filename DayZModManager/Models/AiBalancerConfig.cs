@@ -14,6 +14,10 @@ public class AiBalancerConfig
     public string EventsXmlPath { get; set; } = string.Empty;
     public string GlobalsXmlPath { get; set; } = string.Empty;
     public string SpawnableTypesXmlPath { get; set; } = string.Empty;
+    /// <summary>Root folder of the DayZ server install (used for whole-server file editing).</summary>
+    public string ServerRootPath { get; set; } = string.Empty;
+    /// <summary>Mission folder under the server (e.g. mpmissions/dayzOffline.chernarusplus).</summary>
+    public string MissionPath { get; set; } = string.Empty;
     public bool BackupBeforeApply { get; set; } = true;
     public bool AutoStartListener { get; set; }
 }

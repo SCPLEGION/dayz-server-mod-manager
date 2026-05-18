@@ -174,7 +174,57 @@
                             <TextBox Grid.Column="1" x:Name="SpawnableTypesXmlPathBox"/>
                             <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseSpawnableTypesXml"/>
                         </Grid>
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Server root" Style="{StaticResource MiniLabel}"/>
+                            <TextBox Grid.Column="1" x:Name="ServerRootPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseServerRoot"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                                <ColumnDefinition Width="120"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Mission folder" Style="{StaticResource MiniLabel}"/>
+                            <TextBox Grid.Column="1" x:Name="MissionPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseMission"/>
+                            <Button Grid.Column="3" Content="Discover files" Margin="6,0,0,0" Click="OnDiscoverServerFiles"/>
+                        </Grid>
+                        <TextBlock x:Name="ServerFilesSummaryText" Style="{StaticResource MiniValue}" Foreground="{StaticResource Muted}" Margin="140,2,0,0" Text="No server scanned yet."/>
                         <Button Content="💾 Save settings" Width="160" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OnSaveAiSettings"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- ═════ SECTION A2: AI TASKS (natural language → server changes) ═════ -->
+                <GroupBox Header="AI TASKS" Style="{StaticResource AiGroupBox}">
+                    <StackPanel>
+                        <TextBlock Text="Describe what you want to change. Example: &quot;make a full day take 2 hours and night 15 minutes&quot;." Style="{StaticResource MiniValue}" Foreground="{StaticResource Muted}" Margin="0,2,0,6"/>
+                        <TextBox x:Name="AiTaskPromptBox" Height="60" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button x:Name="BtnPlanTask" Content="✦ Plan with AI" Width="160" Click="OnPlanTaskClick"/>
+                            <Button x:Name="BtnApplyTaskPlan" Content="✓ Apply approved" Width="160" Margin="6,0,0,0" Click="OnApplyTaskPlanClick" IsEnabled="False"/>
+                            <Button x:Name="BtnClearTaskPlan" Content="✖ Clear" Width="80" Margin="6,0,0,0" Click="OnClearTaskPlanClick"/>
+                            <CheckBox x:Name="TaskBackupCheck" Content="Backup files before applying" IsChecked="True" Margin="14,4,0,0"/>
+                            <TextBlock x:Name="TaskTokensText" Style="{StaticResource MiniValue}" Foreground="{StaticResource Muted}" Margin="14,4,0,0" Text=""/>
+                        </StackPanel>
+                        <TextBlock x:Name="TaskNotesText" Style="{StaticResource MiniValue}" Foreground="{StaticResource Sub}" TextWrapping="Wrap" Margin="0,0,0,6" Text=""/>
+                        <DataGrid x:Name="TaskPlanGrid" Height="180" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"
+                                  RowBackground="{StaticResource Bg1}" AlternatingRowBackground="{StaticResource Bg2}">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="✓" Binding="{Binding IsApproved, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
+                                <DataGridTextColumn Header="Action" Binding="{Binding Kind}" IsReadOnly="True" Width="110"/>
+                                <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" IsReadOnly="True" Width="2*"/>
+                                <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" IsReadOnly="True" Width="2*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
                     </StackPanel>
                 </GroupBox>
 
