@@ -54,7 +54,7 @@ public partial class MainWindow : Window
 
         LocalIdsListBox.SelectionChanged += OnLocalIdSelected;
 
-        this.GetObservable(WindowStateProperty).Subscribe(_ => OnWindowStateChanged());
+        PropertyChanged += (_, e) => { if (e.Property == WindowStateProperty) OnWindowStateChanged(); };
 
         Loaded += (_, _) =>
         {
