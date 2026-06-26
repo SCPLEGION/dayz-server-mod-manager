@@ -6,12 +6,17 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
+using Avalonia.Media;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using DayZModManager.Models;
 using DayZModManager.Services;
-using Microsoft.Win32;
+using MsBox.Avalonia;
+using MsBox.Avalonia.Enums;
 
 namespace DayZModManager.Controls;
 
@@ -23,7 +28,7 @@ public partial class AiBalancerTab : UserControl
     private readonly ServerFilesService _serverFiles = new();
     private readonly AiTaskService _taskAi = new();
     private readonly TaskApplyService _taskApply = new();
-    private readonly System.Windows.Threading.DispatcherTimer _statusTimer;
+    private readonly DispatcherTimer _statusTimer;
 
     private readonly ObservableCollection<EconomyRowViewModel> _allEconomy = new();
     private readonly ObservableCollection<EconomyRowViewModel> _viewEconomy = new();
@@ -31,9 +36,9 @@ public partial class AiBalancerTab : UserControl
     private readonly ObservableCollection<SuggestionRowViewModel> _viewSuggestions = new();
     private readonly ObservableCollection<WorkerCardViewModel> _workers = new();
     private readonly ObservableCollection<TaskAction> _taskActions = new();
+    private readonly ObservableCollection<string> _historyItems = new();
 
     private ServerFilesSnapshot? _serverFilesSnap;
-
     private CancellationTokenSource? _runCts;
     private AiBalancerConfig _cfg = new();
     private string _historyPath = string.Empty;
@@ -46,18 +51,19 @@ public partial class AiBalancerTab : UserControl
         SuggestionsGrid.ItemsSource = _viewSuggestions;
         WorkersList.ItemsSource = _workers;
         TaskPlanGrid.ItemsSource = _taskActions;
+        HistoryList.ItemsSource = _historyItems;
 
         _listener.SnapshotReceived += OnSnapshotReceived;
         _listener.LogMessage += (_, m) => AppendLog(m);
 
-        _statusTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _statusTimer.Tick += (_, _) => UpdateLastReceivedLabel();
         _statusTimer.Start();
 
         Loaded += OnLoaded;
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         try
         {
@@ -86,13 +92,13 @@ public partial class AiBalancerTab : UserControl
         }
     }
 
-    // ───────────────── Settings UI ↔ Config ─────────────────
+    // ─── Config UI ↔ model ───
 
     private void ApplyConfigToUi(AiBalancerConfig cfg)
     {
         PortTextBox.Text = cfg.ListenerPort.ToString();
-        SecretBox.Password = cfg.ListenerSecret ?? string.Empty;
-        ApiKeyBox.Password = ApiKeyProtection.Unprotect(cfg.OpenAiApiKeyEncrypted ?? string.Empty);
+        SecretBox.Text = cfg.ListenerSecret ?? string.Empty;
+        ApiKeyBox.Text = ApiKeyProtection.Unprotect(cfg.OpenAiApiKeyEncrypted ?? string.Empty);
         SelectComboByText(ModelCombo, cfg.OpenAiModel);
         SelectComboByText(ServerTypeCombo, cfg.ServerType);
         SelectComboByText(ConcurrencyCombo, cfg.Concurrency.ToString());
@@ -109,27 +115,33 @@ public partial class AiBalancerTab : UserControl
     private static void SelectComboByText(ComboBox combo, string? text)
     {
         if (string.IsNullOrEmpty(text)) return;
-        foreach (ComboBoxItem item in combo.Items)
+        for (int i = 0; i < combo.Items.Count; i++)
         {
-            if (string.Equals(item.Content?.ToString(), text, StringComparison.OrdinalIgnoreCase))
+            var content = combo.Items[i] is ComboBoxItem cbi ? cbi.Content?.ToString()
+                        : combo.Items[i]?.ToString();
+            if (string.Equals(content, text, StringComparison.OrdinalIgnoreCase))
             {
-                combo.SelectedItem = item;
+                combo.SelectedIndex = i;
                 return;
             }
         }
     }
 
+    private static string? GetComboText(ComboBox combo)
+        => combo.SelectedItem is ComboBoxItem cbi ? cbi.Content?.ToString()
+         : combo.SelectedItem?.ToString();
+
     private AiBalancerConfig CaptureConfigFromUi()
     {
-        var cfg = new AiBalancerConfig
+        return new AiBalancerConfig
         {
             ListenerPort = int.TryParse(PortTextBox.Text, out var p) ? p : 7823,
-            ListenerSecret = SecretBox.Password ?? string.Empty,
-            OpenAiApiKeyEncrypted = ApiKeyProtection.Protect(ApiKeyBox.Password ?? string.Empty),
-            OpenAiModel = (ModelCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "gpt-5.4-nano-2026-03-17",
-            ServerType = (ServerTypeCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "PvE",
-            Concurrency = int.TryParse((ConcurrencyCombo.SelectedItem as ComboBoxItem)?.Content?.ToString(), out var c) ? c : 3,
-            BatchSize = int.TryParse((BatchSizeCombo.SelectedItem as ComboBoxItem)?.Content?.ToString(), out var b) ? b : 30,
+            ListenerSecret = SecretBox.Text ?? string.Empty,
+            OpenAiApiKeyEncrypted = ApiKeyProtection.Protect(ApiKeyBox.Text ?? string.Empty),
+            OpenAiModel = GetComboText(ModelCombo) ?? "gpt-5.4-nano-2026-03-17",
+            ServerType = GetComboText(ServerTypeCombo) ?? "PvE",
+            Concurrency = int.TryParse(GetComboText(ConcurrencyCombo), out var c) ? c : 3,
+            BatchSize = int.TryParse(GetComboText(BatchSizeCombo), out var b) ? b : 30,
             TypesXmlPath = TypesXmlPathBox.Text?.Trim() ?? string.Empty,
             EventsXmlPath = EventsXmlPathBox.Text?.Trim() ?? string.Empty,
             GlobalsXmlPath = GlobalsXmlPathBox.Text?.Trim() ?? string.Empty,
@@ -139,10 +151,9 @@ public partial class AiBalancerTab : UserControl
             BackupBeforeApply = BackupCheck.IsChecked ?? true,
             AutoStartListener = _cfg.AutoStartListener,
         };
-        return cfg;
     }
 
-    private void OnSaveAiSettings(object sender, RoutedEventArgs e)
+    private async void OnSaveAiSettings(object? sender, RoutedEventArgs e)
     {
         try
         {
@@ -154,23 +165,23 @@ public partial class AiBalancerTab : UserControl
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Save failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("Save failed: " + ex.Message);
         }
     }
 
-    // ───────────────── Listener ─────────────────
+    // ─── Listener ───
 
-    private void OnStartListenerClick(object sender, RoutedEventArgs e) => StartListener();
-    private void OnStopListenerClick(object sender, RoutedEventArgs e) => StopListener();
+    private void OnStartListenerClick(object? sender, RoutedEventArgs e) => StartListener();
+    private void OnStopListenerClick(object? sender, RoutedEventArgs e) => StopListener();
 
-    private void StartListener()
+    private async void StartListener()
     {
         try
         {
             _cfg = CaptureConfigFromUi();
             if (string.IsNullOrWhiteSpace(_cfg.ListenerSecret))
             {
-                MessageBox.Show("Set a Secret token first.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Warning);
+                await ShowWarning("Set a Secret token first.");
                 return;
             }
             _listener.Start(_cfg.ListenerPort, _cfg.ListenerSecret);
@@ -179,8 +190,7 @@ public partial class AiBalancerTab : UserControl
         catch (Exception ex)
         {
             AppendLog("Listener start failed: " + ex.Message);
-            MessageBox.Show("Listener start failed: " + ex.Message + "\nTry running as admin or use a different port.",
-                "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("Listener start failed: " + ex.Message + "\nTry running as admin or use a different port.");
         }
     }
 
@@ -192,7 +202,8 @@ public partial class AiBalancerTab : UserControl
 
     private void UpdateListenerStatus(bool listening)
     {
-        var brush = listening ? (Brush)Application.Current.Resources["Accent"] : (Brush)Application.Current.Resources["Muted"];
+        var color = listening ? Color.Parse("#4ADE80") : Color.Parse("#52525B");
+        var brush = new SolidColorBrush(color);
         ListenerDot.Fill = brush;
         ListenerDot2.Fill = brush;
         ListenerStatusText.Text = listening ? $"Listening on port {_listener.Port}" : "Stopped";
@@ -215,7 +226,7 @@ public partial class AiBalancerTab : UserControl
 
     private void OnSnapshotReceived(object? sender, EconomySnapshot snap)
     {
-        Dispatcher.InvokeAsync(() =>
+        Dispatcher.UIThread.InvokeAsync(() =>
         {
             RebuildEconomyView(snap);
             UpdateRunButtonEnabled();
@@ -224,7 +235,7 @@ public partial class AiBalancerTab : UserControl
 
     private void RebuildEconomyView(EconomySnapshot snap)
     {
-        EconomyGroup.Visibility = Visibility.Visible;
+        EconomyGroup.IsVisible = true;
         var ts = DateTimeOffset.FromUnixTimeSeconds(snap.Timestamp).LocalDateTime;
         SnapshotTimeText.Text = ts.ToString("yyyy-MM-dd HH:mm");
         SnapshotPlayersText.Text = $"{snap.PlayersOnline}/{snap.PlayersMax}";
@@ -265,48 +276,46 @@ public partial class AiBalancerTab : UserControl
 
     private static string ComputeTrend(string className, IReadOnlyList<EconomySnapshot> hist)
     {
-        if (hist == null || hist.Count < 2) return "\u2192";
+        if (hist == null || hist.Count < 2) return "→";
         var values = new List<int>();
         foreach (var s in hist)
         {
             var it = s.Items?.FirstOrDefault(i => string.Equals(i.ClassName, className, StringComparison.OrdinalIgnoreCase));
             if (it != null) values.Add(it.SpawnedCount);
         }
-        if (values.Count < 2) return "\u2192";
+        if (values.Count < 2) return "→";
         var first = values.Take(values.Count / 2).DefaultIfEmpty(0).Average();
         var second = values.Skip(values.Count / 2).DefaultIfEmpty(0).Average();
         var delta = second - first;
         var threshold = Math.Max(1, first * 0.15);
-        if (delta > threshold * 2) return "\u2191";
-        if (delta > threshold) return "\u2197";
-        if (delta < -threshold * 2) return "\u2193";
-        if (delta < -threshold) return "\u2198";
-        return "\u2192";
+        if (delta > threshold * 2) return "↑";
+        if (delta > threshold) return "↗";
+        if (delta < -threshold * 2) return "↓";
+        if (delta < -threshold) return "↘";
+        return "→";
     }
 
     private void PopulateEconomyCategoryFilter()
     {
-        var current = (EconomyCategoryCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "All";
+        var current = GetComboText(EconomyCategoryCombo) ?? "All";
         EconomyCategoryCombo.Items.Clear();
-        EconomyCategoryCombo.Items.Add(new ComboBoxItem { Content = "All", IsSelected = true });
+        EconomyCategoryCombo.Items.Add(new ComboBoxItem { Content = "All" });
         foreach (var cat in _allEconomy.Select(e => e.Category).Where(c => !string.IsNullOrEmpty(c))
                      .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(c => c))
             EconomyCategoryCombo.Items.Add(new ComboBoxItem { Content = cat });
-        foreach (ComboBoxItem item in EconomyCategoryCombo.Items)
-            if (string.Equals(item.Content?.ToString(), current, StringComparison.OrdinalIgnoreCase))
-            { item.IsSelected = true; break; }
+        SelectComboByText(EconomyCategoryCombo, current);
+        if (EconomyCategoryCombo.SelectedIndex < 0) EconomyCategoryCombo.SelectedIndex = 0;
     }
 
-    private void OnEconomyFilterChanged(object sender, RoutedEventArgs e) => ApplyEconomyFilter();
-    private void OnEconomyFilterChanged(object sender, TextChangedEventArgs e) => ApplyEconomyFilter();
-    private void OnEconomyFilterChanged(object sender, SelectionChangedEventArgs e) => ApplyEconomyFilter();
+    private void OnEconomyFilterChanged(object? sender, RoutedEventArgs e) => ApplyEconomyFilter();
+    private void OnEconomyFilterChanged(object? sender, TextChangedEventArgs e) => ApplyEconomyFilter();
+    private void OnEconomyFilterChanged(object? sender, SelectionChangedEventArgs e) => ApplyEconomyFilter();
 
     private void ApplyEconomyFilter()
     {
-        if (_allEconomy == null) return;
         var search = EconomySearchBox?.Text?.Trim() ?? string.Empty;
-        var cat = (EconomyCategoryCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "All";
-        var status = (EconomyStatusCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "All";
+        var cat = GetComboText(EconomyCategoryCombo) ?? "All";
+        var status = GetComboText(EconomyStatusCombo) ?? "All";
         var showCrafted = ShowCraftedCheck?.IsChecked ?? false;
 
         _viewEconomy.Clear();
@@ -338,20 +347,28 @@ public partial class AiBalancerTab : UserControl
         SummarySevereText.Text = $"Severe: {severe}";
     }
 
-    // ───────────────── Browse buttons ─────────────────
+    // ─── Browse ───
 
-    private void OnBrowseTypesXml(object sender, RoutedEventArgs e) => Browse(TypesXmlPathBox);
-    private void OnBrowseEventsXml(object sender, RoutedEventArgs e) => Browse(EventsXmlPathBox);
-    private void OnBrowseGlobalsXml(object sender, RoutedEventArgs e) => Browse(GlobalsXmlPathBox);
-    private void OnBrowseSpawnableTypesXml(object sender, RoutedEventArgs e) => Browse(SpawnableTypesXmlPathBox);
+    private void OnBrowseTypesXml(object? sender, RoutedEventArgs e) => _ = BrowseXmlAsync(TypesXmlPathBox);
+    private void OnBrowseEventsXml(object? sender, RoutedEventArgs e) => _ = BrowseXmlAsync(EventsXmlPathBox);
+    private void OnBrowseGlobalsXml(object? sender, RoutedEventArgs e) => _ = BrowseXmlAsync(GlobalsXmlPathBox);
+    private void OnBrowseSpawnableTypesXml(object? sender, RoutedEventArgs e) => _ = BrowseXmlAsync(SpawnableTypesXmlPathBox);
 
-    private static void Browse(TextBox target)
+    private async Task BrowseXmlAsync(TextBox target)
     {
-        var dlg = new OpenFileDialog { Filter = "XML files (*.xml)|*.xml|All files (*.*)|*.*" };
-        if (dlg.ShowDialog() == true) target.Text = dlg.FileName;
+        var top = TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select XML file",
+            AllowMultiple = false,
+            FileTypeFilter = new[] { new FilePickerFileType("XML files") { Patterns = new[] { "*.xml" } }, FilePickerFileType.All },
+        });
+        if (files.Count > 0)
+            target.Text = files[0].TryGetLocalPath() ?? files[0].Path.LocalPath;
     }
 
-    private void OnLoadFromMergedOutput(object sender, RoutedEventArgs e)
+    private async void OnLoadFromMergedOutput(object? sender, RoutedEventArgs e)
     {
         try
         {
@@ -359,51 +376,49 @@ public partial class AiBalancerTab : UserControl
             var merged = store.CombineOutFileText;
             if (string.IsNullOrWhiteSpace(merged))
             {
-                MessageBox.Show("No merged output path set yet. Run the Mods Folders tab first.",
-                    "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Information);
+                await ShowInfo("No merged output path set yet. Run the Mods Folders tab first.");
                 return;
             }
             var full = Path.IsPathRooted(merged) ? merged : Path.Combine(AppContext.BaseDirectory, merged);
             if (!File.Exists(full))
             {
-                MessageBox.Show($"Merged file not found:\n{full}", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Warning);
+                await ShowWarning($"Merged file not found:\n{full}");
                 return;
             }
             TypesXmlPathBox.Text = full;
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Load failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("Load failed: " + ex.Message);
         }
     }
 
-    // ───────────────── Run AI Balancer ─────────────────
+    // ─── Run balancer ───
 
     private void UpdateRunButtonEnabled()
     {
         var snap = _listener.RecentSnapshots.LastOrDefault();
-        BtnRunBalancer.IsEnabled = snap != null && snap.Items?.Count > 0 && !string.IsNullOrWhiteSpace(ApiKeyBox.Password);
+        BtnRunBalancer.IsEnabled = snap != null && snap.Items?.Count > 0 && !string.IsNullOrWhiteSpace(ApiKeyBox.Text);
     }
 
-    private async void OnRunBalancerClick(object sender, RoutedEventArgs e)
+    private async void OnRunBalancerClick(object? sender, RoutedEventArgs e)
     {
         var snap = _listener.RecentSnapshots.LastOrDefault();
         if (snap == null || snap.Items == null || snap.Items.Count == 0)
         {
-            MessageBox.Show("No economy snapshot yet. Start the listener and wait for the mod to POST data.",
-                "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Information);
+            await ShowInfo("No economy snapshot yet. Start the listener and wait for the mod to POST data.");
             return;
         }
-        if (string.IsNullOrWhiteSpace(ApiKeyBox.Password))
+        if (string.IsNullOrWhiteSpace(ApiKeyBox.Text))
         {
-            MessageBox.Show("Enter your OpenAI API key.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            await ShowWarning("Enter your OpenAI API key.");
             return;
         }
 
         _cfg = CaptureConfigFromUi();
         var opts = new AiBalancerOptions
         {
-            ApiKey = ApiKeyBox.Password,
+            ApiKey = ApiKeyBox.Text,
             Model = _cfg.OpenAiModel,
             Concurrency = _cfg.Concurrency,
             BatchSize = _cfg.BatchSize,
@@ -412,12 +427,12 @@ public partial class AiBalancerTab : UserControl
 
         _allSuggestions.Clear();
         _viewSuggestions.Clear();
-        SuggestionsGroup.Visibility = Visibility.Collapsed;
+        SuggestionsGroup.IsVisible = false;
         _workers.Clear();
         for (var i = 0; i < opts.Concurrency; i++)
             _workers.Add(new WorkerCardViewModel { Title = $"Worker {i + 1}", Status = "idle", ProgressPct = 0 });
 
-        ProgressPanel.Visibility = Visibility.Visible;
+        ProgressPanel.IsVisible = true;
         OverallProgress.Value = 0;
         ProgressStatusText.Text = "Starting...";
         BtnRunBalancer.IsEnabled = false;
@@ -441,7 +456,7 @@ public partial class AiBalancerTab : UserControl
         catch (Exception ex)
         {
             AppendLog("AI run failed: " + ex.Message);
-            MessageBox.Show("AI run failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("AI run failed: " + ex.Message);
         }
         finally
         {
@@ -452,7 +467,7 @@ public partial class AiBalancerTab : UserControl
         }
     }
 
-    private void OnCancelBalancerClick(object sender, RoutedEventArgs e)
+    private void OnCancelBalancerClick(object? sender, RoutedEventArgs e)
     {
         try { _runCts?.Cancel(); } catch { }
     }
@@ -471,7 +486,7 @@ public partial class AiBalancerTab : UserControl
             var idx = ((p.WorkerIndex - 1) % totalWorkers + totalWorkers) % totalWorkers;
             if (idx < _workers.Count)
             {
-                _workers[idx].Status = $"batch {p.CurrentBatchIndex + 1} {(p.WorkerStatus == WorkerStatus.Done ? "✓" : "…")}";
+                _workers[idx].Status = $"batch {p.CurrentBatchIndex + 1} {(p.WorkerStatus == WorkerStatus.Done ? "done" : "…")}";
                 _workers[idx].ProgressPct = p.WorkerProgressPct;
             }
         }
@@ -497,20 +512,19 @@ public partial class AiBalancerTab : UserControl
             }
         }
         ApplySuggestionFilter();
-        SuggestionsGroup.Visibility = _allSuggestions.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        var cost = run.TotalTokensUsed * 0.00000005m; // rough nano-tier estimate (informational only)
+        SuggestionsGroup.IsVisible = _allSuggestions.Count > 0;
+        var cost = run.TotalTokensUsed * 0.00000005m;
         SuggestionsSummaryText.Text = $"AI suggests {_allSuggestions.Count} change(s) across {run.Suggestions.Count} items. Tokens used: {run.TotalTokensUsed:N0} (~${cost:F4}).";
     }
 
-    private void OnSuggestionFilterChanged(object sender, RoutedEventArgs e) => ApplySuggestionFilter();
-    private void OnSuggestionFilterChanged(object sender, TextChangedEventArgs e) => ApplySuggestionFilter();
-    private void OnSuggestionFilterChanged(object sender, SelectionChangedEventArgs e) => ApplySuggestionFilter();
+    private void OnSuggestionFilterChanged(object? sender, RoutedEventArgs e) => ApplySuggestionFilter();
+    private void OnSuggestionFilterChanged(object? sender, TextChangedEventArgs e) => ApplySuggestionFilter();
+    private void OnSuggestionFilterChanged(object? sender, SelectionChangedEventArgs e) => ApplySuggestionFilter();
 
     private void ApplySuggestionFilter()
     {
-        if (_allSuggestions == null) return;
         var search = SuggestionSearchBox?.Text?.Trim() ?? string.Empty;
-        var field = (SuggestionFieldCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "All fields";
+        var field = GetComboText(SuggestionFieldCombo) ?? "All fields";
         var onlyInc = OnlyIncreasesCheck?.IsChecked ?? false;
         var onlyDec = OnlyDecreasesCheck?.IsChecked ?? false;
         var onlySev = OnlySevereCheck?.IsChecked ?? false;
@@ -527,43 +541,40 @@ public partial class AiBalancerTab : UserControl
         }
     }
 
-    // ───────────────── Apply / Export ─────────────────
+    // ─── Apply / Export ───
 
-    private void OnSelectAll(object sender, RoutedEventArgs e) { foreach (var r in _viewSuggestions) r.IsApproved = true; }
-    private void OnSelectNone(object sender, RoutedEventArgs e) { foreach (var r in _viewSuggestions) r.IsApproved = false; }
-    private void OnSelectSevere(object sender, RoutedEventArgs e)
+    private void OnSelectAll(object? sender, RoutedEventArgs e) { foreach (var r in _viewSuggestions) r.IsApproved = true; }
+    private void OnSelectNone(object? sender, RoutedEventArgs e) { foreach (var r in _viewSuggestions) r.IsApproved = false; }
+    private void OnSelectSevere(object? sender, RoutedEventArgs e) { foreach (var r in _allSuggestions) r.IsApproved = r.IsSevere; }
+    private void OnRejectSelected(object? sender, RoutedEventArgs e)
     {
-        foreach (var r in _allSuggestions) r.IsApproved = r.IsSevere;
+        foreach (var r in _viewSuggestions.Where(s => s.IsApproved).ToList()) r.IsApproved = false;
     }
 
-    private void OnRejectSelected(object sender, RoutedEventArgs e)
-    {
-        foreach (var r in _viewSuggestions.Where(s => s.IsApproved).ToList())
-            r.IsApproved = false;
-    }
-
-    private void OnApplySelected(object sender, RoutedEventArgs e)
+    private async void OnApplySelected(object? sender, RoutedEventArgs e)
     {
         var path = TypesXmlPathBox.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
         {
-            MessageBox.Show("Set a valid types.xml path first.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            await ShowWarning("Set a valid types.xml path first.");
             return;
         }
 
         var approvedRows = _viewSuggestions.Where(r => r.IsApproved).ToList();
         if (approvedRows.Count == 0)
         {
-            MessageBox.Show("No suggestions selected.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Information);
+            await ShowInfo("No suggestions selected.");
             return;
         }
 
-        var confirm = MessageBox.Show(
-            $"Apply {approvedRows.Count} field change(s) to types.xml?\n{(BackupCheck.IsChecked == true ? "Original will be backed up." : "No backup will be created.")}",
-            "Confirm apply", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
+        var backupNote = BackupCheck.IsChecked == true ? "Original will be backed up." : "No backup will be created.";
+        var result = await MessageBoxManager
+            .GetMessageBoxStandard("Confirm apply",
+                $"Apply {approvedRows.Count} field change(s) to types.xml?\n{backupNote}",
+                ButtonEnum.YesNo, Icon.Question)
+            .ShowWindowDialogAsync(GetParentWindow());
+        if (result != ButtonResult.Yes) return;
 
-        // Build per-className suggestions limited to approved field-rows.
         var byClass = approvedRows.GroupBy(r => r.ClassName, StringComparer.OrdinalIgnoreCase);
         var toApply = new List<BalanceSuggestion>();
         foreach (var g in byClass)
@@ -582,48 +593,52 @@ public partial class AiBalancerTab : UserControl
 
         try
         {
-            var result = _xml.Apply(toApply, path, BackupCheck.IsChecked == true);
-            var msg = $"Applied: {result.Applied}\nNot found: {result.NotFound}";
-            if (!string.IsNullOrEmpty(result.BackupPath)) msg += $"\nBackup: {Path.GetFileName(result.BackupPath)}";
-            if (result.Errors.Count > 0) msg += "\nErrors: " + result.Errors.Count;
-            MessageBox.Show(msg, "Apply complete", MessageBoxButton.OK, MessageBoxImage.Information);
-            AppendLog($"Apply complete. {result.Applied} applied, {result.NotFound} not found, {result.Errors.Count} errors.");
+            var applyResult = _xml.Apply(toApply, path, BackupCheck.IsChecked == true);
+            var msg = $"Applied: {applyResult.Applied}\nNot found: {applyResult.NotFound}";
+            if (!string.IsNullOrEmpty(applyResult.BackupPath)) msg += $"\nBackup: {Path.GetFileName(applyResult.BackupPath)}";
+            if (applyResult.Errors.Count > 0) msg += "\nErrors: " + applyResult.Errors.Count;
+            await ShowInfo(msg);
+            AppendLog($"Apply complete. {applyResult.Applied} applied, {applyResult.NotFound} not found, {applyResult.Errors.Count} errors.");
 
             SaveHistoryEntry(_allSuggestions.Count, 0, _cfg.OpenAiModel,
                 approvedRows.Count == _allSuggestions.Count ? "Applied" : "Partially applied",
-                approvedRows.Count, _allSuggestions.Count - approvedRows.Count, result.BackupPath);
+                approvedRows.Count, _allSuggestions.Count - approvedRows.Count, applyResult.BackupPath);
             RefreshHistoryList();
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Apply failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("Apply failed: " + ex.Message);
         }
     }
 
-    private void OnExportSuggestions(object sender, RoutedEventArgs e)
+    private async void OnExportSuggestions(object? sender, RoutedEventArgs e)
     {
-        var dlg = new SaveFileDialog
+        var top = TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var file = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Filter = "JSON (*.json)|*.json",
-            FileName = $"balance-suggestions-{DateTime.Now:yyyyMMdd_HHmmss}.json",
-        };
-        if (dlg.ShowDialog() != true) return;
+            Title = "Export suggestions",
+            SuggestedFileName = $"balance-suggestions-{DateTime.Now:yyyyMMdd_HHmmss}.json",
+            FileTypeChoices = new[] { new FilePickerFileType("JSON") { Patterns = new[] { "*.json" } } },
+        });
+        if (file == null) return;
         try
         {
             var payload = _allSuggestions.Select(r => new
             {
                 r.ClassName, r.Category, r.Field, r.OldValue, r.NewValue, r.Delta, r.Reason, Approved = r.IsApproved,
             });
-            File.WriteAllText(dlg.FileName, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-            AppendLog("Suggestions exported to " + dlg.FileName);
+            var path = file.TryGetLocalPath() ?? file.Path.LocalPath;
+            File.WriteAllText(path, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+            AppendLog("Suggestions exported to " + path);
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Export failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("Export failed: " + ex.Message);
         }
     }
 
-    // ───────────────── History ─────────────────
+    // ─── History ───
 
     private void SaveHistoryEntry(int suggestionCount, int tokens, string model, string status,
         int applied = 0, int rejected = 0, string? backupPath = null)
@@ -643,8 +658,7 @@ public partial class AiBalancerTab : UserControl
             };
             var dir = Path.GetDirectoryName(_historyPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.AppendAllText(_historyPath,
-                JsonSerializer.Serialize(entry) + Environment.NewLine);
+            File.AppendAllText(_historyPath, JsonSerializer.Serialize(entry) + Environment.NewLine);
         }
         catch (Exception ex)
         {
@@ -654,7 +668,7 @@ public partial class AiBalancerTab : UserControl
 
     private void RefreshHistoryList()
     {
-        HistoryList.Items.Clear();
+        _historyItems.Clear();
         try
         {
             if (!File.Exists(_historyPath)) return;
@@ -665,58 +679,77 @@ public partial class AiBalancerTab : UserControl
                 {
                     var entry = JsonSerializer.Deserialize<BalanceHistoryEntry>(line);
                     if (entry == null) continue;
-                    HistoryList.Items.Add($"{entry.Timestamp:yyyy-MM-dd HH:mm} — {entry.SuggestionCount} suggestion(s) — {entry.Status}" +
+                    _historyItems.Add($"{entry.Timestamp:yyyy-MM-dd HH:mm} — {entry.SuggestionCount} suggestion(s) — {entry.Status}" +
                         (entry.AppliedCount > 0 ? $" ({entry.AppliedCount} accepted, {entry.RejectedCount} rejected)" : ""));
                 }
-                catch { /* skip */ }
+                catch { /* skip malformed */ }
             }
         }
         catch (Exception ex) { AppendLog("History load failed: " + ex.Message); }
     }
 
-    private void OnRefreshAiHistory(object sender, RoutedEventArgs e) => RefreshHistoryList();
+    private void OnRefreshAiHistory(object? sender, RoutedEventArgs e) => RefreshHistoryList();
 
-    // ───────────────── Log ─────────────────
+    // ─── Log ───
 
     private void AppendLog(string msg)
     {
         var line = $"[{DateTime.Now:HH:mm:ss}] {msg}";
-        Dispatcher.InvokeAsync(() =>
+        Dispatcher.UIThread.InvokeAsync(() =>
         {
-            LogBox.AppendText(line + Environment.NewLine);
-            // Trim to ~50 lines
-            var lines = LogBox.Text.Split('\n');
-            if (lines.Length > 60)
+            LogBox.Text += line + Environment.NewLine;
+            var lines = LogBox.Text?.Split('\n');
+            if (lines != null && lines.Length > 60)
                 LogBox.Text = string.Join('\n', lines.Skip(lines.Length - 50));
-            LogBox.ScrollToEnd();
+            LogBox.CaretIndex = LogBox.Text?.Length ?? 0;
         });
     }
 
-    // ───────────────── Server files / AI tasks ─────────────────
+    // ─── Server files / AI tasks ───
 
-    private void OnBrowseServerRoot(object sender, RoutedEventArgs e)
+    private async void OnBrowseServerRoot(object? sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog
+        var top = TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Filter = "DayZ server exe (DayZServer_x64.exe)|DayZServer_x64.exe|All files (*.*)|*.*",
             Title = "Select DayZ server folder (pick any file inside it)",
-        };
-        if (dlg.ShowDialog() == true)
-            ServerRootPathBox.Text = Path.GetDirectoryName(dlg.FileName) ?? dlg.FileName;
-    }
-
-    private void OnBrowseMission(object sender, RoutedEventArgs e)
-    {
-        var dlg = new OpenFileDialog
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("DayZ Server exe") { Patterns = new[] { "DayZServer_x64.exe" } },
+                FilePickerFileType.All,
+            },
+        });
+        if (files.Count > 0)
         {
-            Filter = "Mission init (init.c)|init.c|All files (*.*)|*.*",
-            Title = "Select mission folder (pick init.c inside it)",
-        };
-        if (dlg.ShowDialog() == true)
-            MissionPathBox.Text = Path.GetDirectoryName(dlg.FileName) ?? dlg.FileName;
+            var picked = files[0].TryGetLocalPath() ?? files[0].Path.LocalPath;
+            ServerRootPathBox.Text = Path.GetDirectoryName(picked) ?? picked;
+        }
     }
 
-    private void OnDiscoverServerFiles(object sender, RoutedEventArgs e)
+    private async void OnBrowseMission(object? sender, RoutedEventArgs e)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select mission folder (pick init.c inside it)",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Mission init") { Patterns = new[] { "init.c" } },
+                FilePickerFileType.All,
+            },
+        });
+        if (files.Count > 0)
+        {
+            var picked = files[0].TryGetLocalPath() ?? files[0].Path.LocalPath;
+            MissionPathBox.Text = Path.GetDirectoryName(picked) ?? picked;
+        }
+    }
+
+    private async void OnDiscoverServerFiles(object? sender, RoutedEventArgs e)
     {
         try
         {
@@ -724,8 +757,7 @@ public partial class AiBalancerTab : UserControl
             var mission = MissionPathBox.Text?.Trim() ?? string.Empty;
             if (string.IsNullOrEmpty(root) && string.IsNullOrEmpty(mission))
             {
-                MessageBox.Show("Set the server root or mission folder first.", "AI Balancer",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                await ShowInfo("Set the server root or mission folder first.");
                 return;
             }
             _serverFilesSnap = _serverFiles.Discover(root, mission);
@@ -739,28 +771,27 @@ public partial class AiBalancerTab : UserControl
         }
     }
 
-    private async void OnPlanTaskClick(object sender, RoutedEventArgs e)
+    private async void OnPlanTaskClick(object? sender, RoutedEventArgs e)
     {
         var prompt = AiTaskPromptBox.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            MessageBox.Show("Type a request first (e.g. 'set day to 2h and night to 15min').",
-                "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Information);
+            await ShowInfo("Type a request first (e.g. 'set day to 2h and night to 15min').");
             return;
         }
-        if (string.IsNullOrWhiteSpace(ApiKeyBox.Password))
+        if (string.IsNullOrWhiteSpace(ApiKeyBox.Text))
         {
-            MessageBox.Show("Enter your OpenAI API key.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Warning);
+            await ShowWarning("Enter your OpenAI API key.");
             return;
         }
         if (_serverFilesSnap == null)
-            OnDiscoverServerFiles(this, e);
+            OnDiscoverServerFiles(sender, e);
         if (_serverFilesSnap == null) return;
 
         _cfg = CaptureConfigFromUi();
         var opts = new AiTaskOptions
         {
-            ApiKey = ApiKeyBox.Password,
+            ApiKey = ApiKeyBox.Text,
             Model = _cfg.OpenAiModel,
             ServerType = _cfg.ServerType,
         };
@@ -787,7 +818,7 @@ public partial class AiBalancerTab : UserControl
         catch (Exception ex)
         {
             AppendLog("AI task planner failed: " + ex.Message);
-            MessageBox.Show("Plan failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("Plan failed: " + ex.Message);
         }
         finally
         {
@@ -795,50 +826,65 @@ public partial class AiBalancerTab : UserControl
         }
     }
 
-    private void OnApplyTaskPlanClick(object sender, RoutedEventArgs e)
+    private async void OnApplyTaskPlanClick(object? sender, RoutedEventArgs e)
     {
         var approved = _taskActions.Where(a => a.IsApproved).ToList();
         if (approved.Count == 0)
         {
-            MessageBox.Show("Nothing approved.", "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Information);
+            await ShowInfo("Nothing approved.");
             return;
         }
 
         var summary = string.Join("\n", approved.Take(8).Select(a => "  • " + a.Summary));
         if (approved.Count > 8) summary += $"\n  …and {approved.Count - 8} more";
-        var confirm = MessageBox.Show(
-            $"Apply {approved.Count} approved action(s)?\n\n{summary}\n\n" +
-            (TaskBackupCheck.IsChecked == true ? "Files will be backed up first." : "No backup will be created."),
-            "Confirm AI task apply", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
+        var backupNote = TaskBackupCheck.IsChecked == true ? "Files will be backed up first." : "No backup will be created.";
+        var result = await MessageBoxManager
+            .GetMessageBoxStandard("Confirm AI task apply",
+                $"Apply {approved.Count} approved action(s)?\n\n{summary}\n\n{backupNote}",
+                ButtonEnum.YesNo, Icon.Question)
+            .ShowWindowDialogAsync(GetParentWindow());
+        if (result != ButtonResult.Yes) return;
 
         try
         {
             var proposal = new TaskProposal { Actions = _taskActions.ToList() };
-            var result = _taskApply.Apply(proposal, TaskBackupCheck.IsChecked == true);
-            var msg = $"Applied: {result.Applied}\nSkipped: {result.Skipped}\nErrors: {result.Errors.Count}";
-            if (result.BackupPaths.Count > 0)
-                msg += "\nBackups: " + result.BackupPaths.Count;
-            if (result.Errors.Count > 0)
-                msg += "\nFirst error: " + result.Errors[0];
-            MessageBox.Show(msg, "AI task apply", MessageBoxButton.OK, MessageBoxImage.Information);
-            AppendLog($"AI task apply: {result.Applied} applied, {result.Skipped} skipped, {result.Errors.Count} errors.");
+            var applyResult = _taskApply.Apply(proposal, TaskBackupCheck.IsChecked == true);
+            var msg = $"Applied: {applyResult.Applied}\nSkipped: {applyResult.Skipped}\nErrors: {applyResult.Errors.Count}";
+            if (applyResult.BackupPaths.Count > 0) msg += "\nBackups: " + applyResult.BackupPaths.Count;
+            if (applyResult.Errors.Count > 0) msg += "\nFirst error: " + applyResult.Errors[0];
+            await ShowInfo(msg);
+            AppendLog($"AI task apply: {applyResult.Applied} applied, {applyResult.Skipped} skipped, {applyResult.Errors.Count} errors.");
 
-            // If any RunBalance action was approved, trigger the balancer now.
             if (approved.Any(a => a.Kind == TaskActionKind.RunBalance))
-                OnRunBalancerClick(this, e);
+                OnRunBalancerClick(sender, e);
         }
         catch (Exception ex)
         {
-            MessageBox.Show("Apply failed: " + ex.Message, "AI Balancer", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ShowError("Apply failed: " + ex.Message);
         }
     }
 
-    private void OnClearTaskPlanClick(object sender, RoutedEventArgs e)
+    private void OnClearTaskPlanClick(object? sender, RoutedEventArgs e)
     {
         _taskActions.Clear();
         TaskNotesText.Text = string.Empty;
         TaskTokensText.Text = string.Empty;
         BtnApplyTaskPlan.IsEnabled = false;
     }
+
+    // ─── Helpers ───
+
+    private Window? GetParentWindow() => TopLevel.GetTopLevel(this) as Window;
+
+    private Task ShowInfo(string msg) =>
+        MessageBoxManager.GetMessageBoxStandard("AI Balancer", msg, ButtonEnum.Ok, Icon.Info)
+            .ShowWindowDialogAsync(GetParentWindow());
+
+    private Task ShowWarning(string msg) =>
+        MessageBoxManager.GetMessageBoxStandard("AI Balancer", msg, ButtonEnum.Ok, Icon.Warning)
+            .ShowWindowDialogAsync(GetParentWindow());
+
+    private Task ShowError(string msg) =>
+        MessageBoxManager.GetMessageBoxStandard("AI Balancer", msg, ButtonEnum.Ok, Icon.Error)
+            .ShowWindowDialogAsync(GetParentWindow());
 }

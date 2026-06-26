@@ -1,0 +1,495 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="DayZModManager.App"
+             RequestedThemeVariant="Dark">
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- SCP Legion dark palette -->
+            <SolidColorBrush x:Key="Bg"           Color="#09090B"/>
+            <SolidColorBrush x:Key="Bg1"          Color="#0D0D10"/>
+            <SolidColorBrush x:Key="Bg2"          Color="#111114"/>
+            <SolidColorBrush x:Key="Bg3"          Color="#18181C"/>
+            <SolidColorBrush x:Key="Line"         Color="#222226"/>
+            <SolidColorBrush x:Key="Line2"        Color="#2A2A2F"/>
+            <SolidColorBrush x:Key="Text"         Color="#E4E4E7"/>
+            <SolidColorBrush x:Key="Muted"        Color="#52525B"/>
+            <SolidColorBrush x:Key="Sub"          Color="#71717A"/>
+            <SolidColorBrush x:Key="Dim"          Color="#A1A1AA"/>
+            <SolidColorBrush x:Key="Accent"       Color="#4ADE80"/>
+            <SolidColorBrush x:Key="AccentDim"    Color="#22C55E"/>
+            <SolidColorBrush x:Key="AccentBg"     Color="#0A1F14"/>
+            <SolidColorBrush x:Key="AccentBorder" Color="#1A3D28"/>
+            <SolidColorBrush x:Key="Amber"        Color="#FACC15"/>
+            <SolidColorBrush x:Key="AmberBg"      Color="#1C1600"/>
+            <SolidColorBrush x:Key="AmberBd"      Color="#3A2E00"/>
+            <SolidColorBrush x:Key="Red"          Color="#EF4444"/>
+            <SolidColorBrush x:Key="RedBg"        Color="#1C0606"/>
+            <SolidColorBrush x:Key="RedBd"        Color="#3B0D0D"/>
+            <SolidColorBrush x:Key="Cyan"         Color="#38BDF8"/>
+            <SolidColorBrush x:Key="CyanBg"       Color="#061721"/>
+            <SolidColorBrush x:Key="CyanBd"       Color="#0B2C42"/>
+            <FontFamily x:Key="MonoFont">Consolas, Cascadia Mono, Liberation Mono, DejaVu Sans Mono, Monospace</FontFamily>
+        </ResourceDictionary>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme/>
+        <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+
+        <!-- Window -->
+        <Style Selector="Window">
+            <Setter Property="Background" Value="{StaticResource Bg}"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <!-- TextBlock -->
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="TextBlock.SectionLabel">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+        </Style>
+        <Style Selector="TextBlock.PanelHeader">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+        </Style>
+        <Style Selector="TextBlock.StatusText">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="TextBlock.AccentText">
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+        </Style>
+        <Style Selector="TextBlock.AmberText">
+            <Setter Property="Foreground" Value="{StaticResource Amber}"/>
+        </Style>
+        <Style Selector="TextBlock.RedText">
+            <Setter Property="Foreground" Value="{StaticResource Red}"/>
+        </Style>
+        <Style Selector="TextBlock.CyanText">
+            <Setter Property="Foreground" Value="{StaticResource Cyan}"/>
+        </Style>
+        <Style Selector="TextBlock.DimText">
+            <Setter Property="Foreground" Value="{StaticResource Dim}"/>
+        </Style>
+
+        <!-- Border pills -->
+        <Style Selector="Border.Pill">
+            <Setter Property="Background" Value="{StaticResource Bg3}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line2}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="7,1"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.PillGreen">
+            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="7,1"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.PillAmber">
+            <Setter Property="Background" Value="{StaticResource AmberBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AmberBd}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="7,1"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.PillCyan">
+            <Setter Property="Background" Value="{StaticResource CyanBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource CyanBd}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="7,1"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.Card">
+            <Setter Property="Background" Value="{StaticResource Bg1}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="16"/>
+        </Style>
+        <Style Selector="Border.PanelBar">
+            <Setter Property="Background" Value="{StaticResource Bg1}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Height" Value="36"/>
+        </Style>
+
+        <!-- Button base (ghost / terminal style) -->
+        <Style Selector="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource Sub}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line2}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Name="Root"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          Margin="{TemplateBinding Padding}"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button:pointerover /template/ Border#Root">
+            <Setter Property="BorderBrush" Value="{StaticResource Text}"/>
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+        <Style Selector="Button:pressed /template/ Border#Root">
+            <Setter Property="Background" Value="{StaticResource Bg2}"/>
+        </Style>
+        <Style Selector="Button:disabled /template/ Border#Root">
+            <Setter Property="Opacity" Value="0.45"/>
+        </Style>
+
+        <!-- BtnGreen -->
+        <Style Selector="Button.BtnGreen">
+            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentDim}"/>
+        </Style>
+        <Style Selector="Button.BtnGreen:pointerover /template/ Border#Root">
+            <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+        </Style>
+        <Style Selector="Button.BtnGreen:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+        </Style>
+        <Style Selector="Button.BtnGreen:pressed /template/ Border#Root">
+            <Setter Property="Background" Value="#10301F"/>
+        </Style>
+
+        <!-- BtnRed -->
+        <Style Selector="Button.BtnRed">
+            <Setter Property="Foreground" Value="{StaticResource Red}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource RedBd}"/>
+        </Style>
+        <Style Selector="Button.BtnRed:pointerover /template/ Border#Root">
+            <Setter Property="BorderBrush" Value="{StaticResource Red}"/>
+        </Style>
+
+        <!-- BtnAmber -->
+        <Style Selector="Button.BtnAmber">
+            <Setter Property="Foreground" Value="{StaticResource Amber}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AmberBd}"/>
+        </Style>
+        <Style Selector="Button.BtnAmber:pointerover /template/ Border#Root">
+            <Setter Property="BorderBrush" Value="{StaticResource Amber}"/>
+        </Style>
+
+        <!-- TitleBarButton -->
+        <Style Selector="Button.TitleBarButton">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource Sub}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="44"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style Selector="Button.TitleBarButton:pointerover /template/ Border#Root">
+            <Setter Property="Background" Value="{StaticResource Bg2}"/>
+        </Style>
+        <Style Selector="Button.TitleBarButton:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+        <Style Selector="Button.TitleBarButton:pressed /template/ Border#Root">
+            <Setter Property="Background" Value="{StaticResource Bg3}"/>
+        </Style>
+
+        <!-- TitleBarCloseButton -->
+        <Style Selector="Button.TitleBarCloseButton">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource Sub}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="44"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="MinHeight" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style Selector="Button.TitleBarCloseButton:pointerover /template/ Border#Root">
+            <Setter Property="Background" Value="{StaticResource Red}"/>
+        </Style>
+        <Style Selector="Button.TitleBarCloseButton:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+        <Style Selector="Button.TitleBarCloseButton:pressed /template/ Border#Root">
+            <Setter Property="Background" Value="#B91C1C"/>
+        </Style>
+
+        <!-- TextBox -->
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="{StaticResource Bg2}"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource Accent}"/>
+            <Setter Property="SelectionBrush" Value="{StaticResource AccentBorder}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line2}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBox:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+        </Style>
+        <Style Selector="TextBox:disabled">
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+
+        <!-- CheckBox -->
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource Sub}"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <Border Name="Box"
+                                Width="13" Height="13"
+                                Background="{StaticResource Bg2}"
+                                BorderBrush="{StaticResource Line2}"
+                                BorderThickness="1"
+                                VerticalAlignment="Center">
+                            <TextBlock Name="Mark"
+                                       Text="✓"
+                                       FontSize="9"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource Accent}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       IsVisible="False"/>
+                        </Border>
+                        <ContentPresenter Margin="7,0,0,0"
+                                          VerticalAlignment="Center"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"/>
+                    </StackPanel>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="CheckBox:checked /template/ Border#Box">
+            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
+        </Style>
+        <Style Selector="CheckBox:checked /template/ TextBlock#Mark">
+            <Setter Property="IsVisible" Value="True"/>
+        </Style>
+        <Style Selector="CheckBox:checked">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+        <Style Selector="CheckBox:pointerover /template/ Border#Box">
+            <Setter Property="BorderBrush" Value="{StaticResource Text}"/>
+        </Style>
+
+        <!-- RadioButton -->
+        <Style Selector="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource Sub}"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="RadioButton:checked">
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+        </Style>
+
+        <!-- ComboBox -->
+        <Style Selector="ComboBox">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Background" Value="{StaticResource Bg2}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line2}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="Padding" Value="8,0,4,0"/>
+        </Style>
+        <Style Selector="ComboBox:pointerover">
+            <Setter Property="BorderBrush" Value="{StaticResource Text}"/>
+        </Style>
+        <Style Selector="ComboBox:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+        </Style>
+        <Style Selector="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="ComboBoxItem:selected">
+            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+        </Style>
+        <Style Selector="ComboBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+        </Style>
+
+        <!-- ListBox -->
+        <Style Selector="ListBox">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="2"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        </Style>
+        <Style Selector="ListBoxItem">
+            <Setter Property="Margin" Value="0,1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="Transparent"
+                            BorderThickness="1"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover /template/ Border#Bd">
+            <Setter Property="Background" Value="{StaticResource Bg2}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected /template/ Border#Bd">
+            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBorder}"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+        </Style>
+
+        <!-- Sidebar TabControl -->
+        <Style Selector="TabControl.SidebarTabControl">
+            <Setter Property="TabStripPlacement" Value="Left"/>
+            <Setter Property="Background" Value="{StaticResource Bg}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="56"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0"
+                                Background="{StaticResource Bg1}"
+                                BorderBrush="{StaticResource Line}"
+                                BorderThickness="0,0,1,0">
+                            <ItemsPresenter Name="PART_ItemsPresenter"
+                                            Background="Transparent"/>
+                        </Border>
+                        <Border Grid.Column="1" Background="{StaticResource Bg}">
+                            <ContentPresenter Name="PART_SelectedContentHost"/>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="TabControl.SidebarTabControl > TabItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="FontFamily" Value="{StaticResource MonoFont}"/>
+            <Setter Property="FontSize" Value="18"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Name="Bd"
+                            Width="56" Height="44"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="Transparent"
+                            BorderThickness="2,0,0,0">
+                        <ContentPresenter Content="{TemplateBinding Header}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="TabControl.SidebarTabControl > TabItem:pointerover /template/ Border#Bd">
+            <Setter Property="Background" Value="{StaticResource Bg2}"/>
+        </Style>
+        <Style Selector="TabControl.SidebarTabControl > TabItem:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+        </Style>
+        <Style Selector="TabControl.SidebarTabControl > TabItem:selected /template/ Border#Bd">
+            <Setter Property="Background" Value="{StaticResource AccentBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentDim}"/>
+        </Style>
+        <Style Selector="TabControl.SidebarTabControl > TabItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource Accent}"/>
+        </Style>
+
+        <!-- Separator -->
+        <Style Selector="Separator">
+            <Setter Property="Background" Value="{StaticResource Line}"/>
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="Margin" Value="0,4"/>
+        </Style>
+
+        <!-- ScrollBar thin -->
+        <Style Selector="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="MinWidth" Value="8"/>
+            <Setter Property="Opacity" Value="0.5"/>
+        </Style>
+        <Style Selector="ScrollBar:horizontal">
+            <Setter Property="Height" Value="8"/>
+            <Setter Property="MinHeight" Value="8"/>
+            <Setter Property="Width" Value="Auto"/>
+        </Style>
+
+    </Application.Styles>
+</Application>

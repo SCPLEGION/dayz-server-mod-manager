@@ -1,28 +1,16 @@
-<Window x:Class="DayZModManager.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        xmlns:ctl="clr-namespace:DayZModManager.Controls"
-        mc:Ignorable="d"
+        xmlns:ctl="using:DayZModManager.Controls"
+        x:Class="DayZModManager.MainWindow"
         Title="DayZ Mod Manager // SCP LEGION"
         Width="1280"
         Height="820"
         MinWidth="1100"
         MinHeight="680"
         Background="{StaticResource Bg}"
-        WindowStyle="None"
-        ResizeMode="CanResize"
+        SystemDecorations="BorderOnly"
         WindowStartupLocation="CenterScreen"
-        StateChanged="OnWindowStateChanged">
-    <shell:WindowChrome.WindowChrome>
-        <shell:WindowChrome CaptionHeight="28"
-                            ResizeBorderThickness="6"
-                            CornerRadius="0"
-                            GlassFrameThickness="0"
-                            UseAeroCaptionButtons="False"/>
-    </shell:WindowChrome.WindowChrome>
+        CanResize="True">
 
     <Border x:Name="WindowRootBorder"
             BorderBrush="{StaticResource Line2}"
@@ -38,14 +26,14 @@
         <Border Grid.Row="0"
                 Background="{StaticResource Bg1}"
                 BorderBrush="{StaticResource Line}"
-                BorderThickness="0,0,0,1">
+                BorderThickness="0,0,0,1"
+                PointerPressed="OnTitleBarPointerPressed">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Title (draggable area) -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                     <TextBlock Text="▣" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
                     <TextBlock Text=" DAYZ_MOD_MANAGER" Foreground="{StaticResource Text}"
@@ -55,22 +43,21 @@
                                FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Window control buttons -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Stretch">
                     <Button x:Name="MinimizeButton"
-                            Style="{StaticResource TitleBarButton}"
+                            Classes="TitleBarButton"
                             Content="─"
-                            ToolTip="Minimize"
+                            ToolTip.Tip="Minimize"
                             Click="OnMinimizeClick"/>
                     <Button x:Name="MaximizeButton"
-                            Style="{StaticResource TitleBarButton}"
+                            Classes="TitleBarButton"
                             Content="▢"
-                            ToolTip="Maximize"
+                            ToolTip.Tip="Maximize"
                             Click="OnMaximizeRestoreClick"/>
                     <Button x:Name="CloseButton"
-                            Style="{StaticResource TitleBarCloseButton}"
+                            Classes="TitleBarCloseButton"
                             Content="✕"
-                            ToolTip="Close"
+                            ToolTip.Tip="Close"
                             Click="OnCloseClick"/>
                 </StackPanel>
             </Grid>
@@ -82,7 +69,6 @@
                 BorderBrush="{StaticResource Line}"
                 BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="True" Margin="12,0">
-                <!-- Logo -->
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="[" Foreground="{StaticResource Line2}" FontWeight="Bold" FontSize="11"/>
                     <TextBlock Text="SCP" Foreground="{StaticResource Muted}" FontWeight="Bold" FontSize="11"/>
@@ -93,14 +79,14 @@
 
                     <Rectangle Width="1" Height="14" Fill="{StaticResource Line2}" Margin="14,0"/>
 
-                    <Border Style="{StaticResource PillGreen}">
+                    <Border Classes="PillGreen">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
                             <TextBlock Text="PROTOCOL ACTIVE" Foreground="{StaticResource AccentDim}"
                                        FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
-                    <Border Style="{StaticResource PillCyan}" Margin="6,0,0,0">
+                    <Border Classes="PillCyan" Margin="6,0,0,0">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse Width="6" Height="6" Fill="{StaticResource Cyan}" VerticalAlignment="Center"/>
                             <TextBlock Text="STEAM API · 200" Foreground="{StaticResource Cyan}"
@@ -109,16 +95,15 @@
                     </Border>
                 </StackPanel>
 
-                <!-- Right cluster: totals + clock -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Style="{StaticResource Pill}">
+                    <Border Classes="Pill">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="MODS.TXT" Foreground="{StaticResource Muted}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
                             <TextBlock x:Name="TopMods" Text="0" Foreground="{StaticResource Text}"
                                        FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
-                    <Border Style="{StaticResource PillGreen}" Margin="6,0,0,0">
+                    <Border Classes="PillGreen" Margin="6,0,0,0">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="INSTALLED" Foreground="{StaticResource AccentDim}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
                             <TextBlock x:Name="TopInstalled" Text="0" Foreground="{StaticResource Accent}"
@@ -138,14 +123,13 @@
         <!-- ═══════════════ BODY ═══════════════ -->
         <TabControl Grid.Row="2"
                     x:Name="MainTabs"
-                    Style="{StaticResource SidebarTabControl}"
-                    ItemContainerStyle="{StaticResource SidebarTabItem}"
+                    Classes="SidebarTabControl"
                     SelectionChanged="OnMainTabChanged">
 
             <!-- ════════ TAB 0: LOCAL MODS ════════ -->
             <TabItem>
                 <TabItem.Header>
-                    <TextBlock Text="&#x2261;" ToolTip="LOCAL MODS"/>
+                    <TextBlock Text="&#x2261;" ToolTip.Tip="LOCAL MODS"/>
                 </TabItem.Header>
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -154,30 +138,27 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- LEFT: list of IDs -->
                     <DockPanel Grid.Column="0" Background="{StaticResource Bg1}" LastChildFill="True">
-                        <!-- Panel header -->
-                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                        <Border DockPanel.Dock="Top" Classes="PanelBar">
                             <DockPanel LastChildFill="True">
                                 <TextBlock Text="01" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
                                 <TextBlock Text="  // INSTALLED MODS" Foreground="{StaticResource Muted}"
                                            FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
-                                <Border DockPanel.Dock="Right" Style="{StaticResource Pill}" HorizontalAlignment="Right">
+                                <Border DockPanel.Dock="Right" Classes="Pill" HorizontalAlignment="Right">
                                     <TextBlock x:Name="LocalCountPill" Text="0" Foreground="{StaticResource Text}"
                                                FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
                                 </Border>
                             </DockPanel>
                         </Border>
 
-                        <!-- Filter + actions -->
                         <StackPanel DockPanel.Dock="Top" Margin="10,10,10,8">
-                            <TextBlock Text="// MODS FILE" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                            <TextBlock Text="// MODS FILE" Classes="SectionLabel" Margin="0,0,0,6"/>
                             <DockPanel LastChildFill="True" Margin="0,0,0,8">
                                 <Button Content="BROWSE" DockPanel.Dock="Right" Width="72" Margin="6,0,0,0" Click="OnBrowseLocalFile"/>
                                 <TextBox x:Name="LocalFilePathTextBox"/>
                             </DockPanel>
 
-                            <TextBlock Text="// STEAM WEB API KEY (OPTIONAL)" Style="{StaticResource SectionLabel}" Margin="0,4,0,6"/>
+                            <TextBlock Text="// STEAM WEB API KEY (OPTIONAL)" Classes="SectionLabel" Margin="0,4,0,6"/>
                             <TextBox x:Name="LocalApiKeyTextBox" Margin="0,0,0,8"/>
 
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
@@ -191,12 +172,11 @@
                                     <ColumnDefinition Width="6"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Style="{StaticResource BtnGreen}" Content="⟳ REFRESH" Click="OnRefreshLocal"/>
-                                <Button Grid.Column="2" Style="{StaticResource BtnRed}"   Content="✕ REMOVE"  Click="OnRemoveSelected"/>
+                                <Button Grid.Column="0" Classes="BtnGreen" Content="⟳ REFRESH" Click="OnRefreshLocal"/>
+                                <Button Grid.Column="2" Classes="BtnRed"   Content="✕ REMOVE"  Click="OnRemoveSelected"/>
                             </Grid>
                         </StackPanel>
 
-                        <!-- Status -->
                         <Border DockPanel.Dock="Bottom"
                                 Background="{StaticResource Bg1}"
                                 BorderBrush="{StaticResource Line}"
@@ -208,17 +188,15 @@
                         <ListBox x:Name="LocalIdsListBox" SelectionMode="Single" BorderThickness="0" Background="Transparent"/>
                     </DockPanel>
 
-                    <!-- Separator -->
                     <Rectangle Grid.Column="1" Fill="{StaticResource Line}"/>
 
-                    <!-- RIGHT: detail / footer info -->
                     <DockPanel Grid.Column="2" Background="{StaticResource Bg}" LastChildFill="True">
-                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                        <Border DockPanel.Dock="Top" Classes="PanelBar">
                             <DockPanel LastChildFill="True">
                                 <TextBlock Text="02" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
                                 <TextBlock Text="  // MOD DETAIL" Foreground="{StaticResource Muted}"
                                            FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
-                                <Border DockPanel.Dock="Right" Style="{StaticResource PillGreen}" HorizontalAlignment="Right">
+                                <Border DockPanel.Dock="Right" Classes="PillGreen" HorizontalAlignment="Right">
                                     <StackPanel Orientation="Horizontal">
                                         <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
                                         <TextBlock Text="LOADED" Foreground="{StaticResource AccentDim}"
@@ -238,7 +216,6 @@
 
                         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="22,18">
                             <StackPanel>
-                                <!-- Hero -->
                                 <Grid Margin="0,0,0,18">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="96"/>
@@ -259,24 +236,23 @@
                                         <TextBlock x:Name="DetailIdText" Text="// no selection"
                                                    Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,10"/>
                                         <WrapPanel>
-                                            <Border Style="{StaticResource PillGreen}" Margin="0,0,6,4">
+                                            <Border Classes="PillGreen" Margin="0,0,6,4">
                                                 <StackPanel Orientation="Horizontal">
                                                     <Ellipse Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
                                                     <TextBlock Text="ACTIVE" Foreground="{StaticResource AccentDim}"
                                                                FontSize="9" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </Border>
-                                            <Border Style="{StaticResource Pill}" Margin="0,0,6,4">
+                                            <Border Classes="Pill" Margin="0,0,6,4">
                                                 <TextBlock Text="WORKSHOP" Foreground="{StaticResource Dim}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
                                             </Border>
-                                            <Border Style="{StaticResource PillCyan}" Margin="0,0,6,4">
+                                            <Border Classes="PillCyan" Margin="0,0,6,4">
                                                 <TextBlock Text="@CHERNARUS" Foreground="{StaticResource Cyan}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
                                             </Border>
                                         </WrapPanel>
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- KV grid -->
                                 <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
                                     <StackPanel>
                                         <Grid Margin="0,0,0,6">
@@ -319,7 +295,7 @@
             <!-- ════════ TAB 1: SEARCH WORKSHOP ════════ -->
             <TabItem>
                 <TabItem.Header>
-                    <TextBlock Text="&#x2315;" ToolTip="SEARCH WORKSHOP"/>
+                    <TextBlock Text="&#x2315;" ToolTip.Tip="SEARCH WORKSHOP"/>
                 </TabItem.Header>
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -328,17 +304,14 @@
                         <ColumnDefinition Width="360"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- LEFT: search controls + results -->
                     <DockPanel Grid.Column="0" LastChildFill="True">
-
-                        <!-- Search controls -->
                         <Border DockPanel.Dock="Top"
                                 Background="{StaticResource Bg1}"
                                 BorderBrush="{StaticResource Line}"
                                 BorderThickness="0,0,0,1"
                                 Padding="16,14">
                             <StackPanel>
-                                <TextBlock Text="// STEAM WORKSHOP SEARCH" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
+                                <TextBlock Text="// STEAM WORKSHOP SEARCH" Classes="SectionLabel" Margin="0,0,0,8"/>
 
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
@@ -352,12 +325,12 @@
                                         <ColumnDefinition Width="8"/>
                                         <ColumnDefinition Width="100"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="appid"        Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Grid.Column="0" Text="appid" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBox   Grid.Column="1" x:Name="AppIdTextBox" Text="221100"/>
-                                    <TextBlock Grid.Column="3" Text="creator"      Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Grid.Column="3" Text="creator" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBox   Grid.Column="4" x:Name="CreatorAppIdTextBox" Text="221100"/>
                                     <TextBox   Grid.Column="6" x:Name="SearchTextBox"/>
-                                    <Button    Grid.Column="8" Style="{StaticResource BtnGreen}" Content="⌕ SEARCH" Click="OnSearchWorkshop"/>
+                                    <Button    Grid.Column="8" Classes="BtnGreen" Content="⌕ SEARCH" Click="OnSearchWorkshop"/>
                                 </Grid>
 
                                 <Grid>
@@ -387,21 +360,19 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Actions at the bottom -->
                         <Border DockPanel.Dock="Bottom"
                                 Background="{StaticResource Bg1}"
                                 BorderBrush="{StaticResource Line}"
                                 BorderThickness="0,1,0,0"
                                 Padding="12,8">
                             <DockPanel LastChildFill="True">
-                                <Button DockPanel.Dock="Left" Style="{StaticResource BtnGreen}" Content="⊕ ADD SELECTED"  Click="OnAddSelected" Margin="0,0,6,0" Width="160"/>
+                                <Button DockPanel.Dock="Left" Classes="BtnGreen" Content="⊕ ADD SELECTED"  Click="OnAddSelected" Margin="0,0,6,0" Width="160"/>
                                 <Button DockPanel.Dock="Left" Content="▦ DEPENDENCY TREE" Click="OnShowDependencyTree" Width="180"/>
                                 <TextBlock x:Name="AddStatusTextBlock" Foreground="{StaticResource Muted}" FontSize="10"
                                            VerticalAlignment="Center" Margin="14,0,0,0"/>
                             </DockPanel>
                         </Border>
 
-                        <!-- Results -->
                         <ListBox x:Name="SearchResultsListBox" SelectionMode="Single"
                                  BorderThickness="0" Background="Transparent" Padding="6">
                             <ListBox.ItemTemplate>
@@ -423,9 +394,8 @@
 
                     <Rectangle Grid.Column="1" Fill="{StaticResource Line}"/>
 
-                    <!-- RIGHT: mods.txt panel + bulk -->
                     <DockPanel Grid.Column="2" Background="{StaticResource Bg1}" LastChildFill="True">
-                        <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                        <Border DockPanel.Dock="Top" Classes="PanelBar">
                             <DockPanel LastChildFill="True">
                                 <TextBlock Text="03" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
                                 <TextBlock Text="  // MODS.TXT" Foreground="{StaticResource Muted}"
@@ -433,16 +403,14 @@
                             </DockPanel>
                         </Border>
 
-                        <!-- Bulk add -->
                         <StackPanel DockPanel.Dock="Top" Margin="12,10,12,8">
-                            <TextBlock Text="// BULK ADD (ONE ID PER LINE)" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                            <TextBlock Text="// BULK ADD (ONE ID PER LINE)" Classes="SectionLabel" Margin="0,0,0,6"/>
                             <TextBox x:Name="BulkIdsTextBox" Height="92"
-                                     AcceptsReturn="True" TextWrapping="NoWrap"
-                                     VerticalScrollBarVisibility="Auto"/>
-                            <Button Style="{StaticResource BtnGreen}" Content="⊕ ADD BULK TO MODS.TXT"
+                                     AcceptsReturn="True" TextWrapping="NoWrap"/>
+                            <Button Classes="BtnGreen" Content="⊕ ADD BULK TO MODS.TXT"
                                     Click="OnAddBulk" Margin="0,8,0,4" HorizontalAlignment="Stretch"/>
 
-                            <TextBlock Text="// LOOKUP" Style="{StaticResource SectionLabel}" Margin="0,8,0,6"/>
+                            <TextBlock Text="// LOOKUP" Classes="SectionLabel" Margin="0,8,0,6"/>
                             <CheckBox x:Name="ModsLookupCheckBox" Content="lookup titles in mods.txt"/>
                             <TextBox x:Name="ModsApiKeyTextBox" Margin="0,6,0,0"/>
                             <Button Content="⟳ REFRESH" Click="OnRefreshModsList" Margin="0,8,0,0"/>
@@ -464,7 +432,7 @@
             <!-- ════════ TAB 2: MOD FOLDERS / TYPES.XML ════════ -->
             <TabItem>
                 <TabItem.Header>
-                    <TextBlock Text="&#x25A6;" ToolTip="MOD FOLDERS · TYPES.XML"/>
+                    <TextBlock Text="&#x25A6;" ToolTip.Tip="MOD FOLDERS · TYPES.XML"/>
                 </TabItem.Header>
                 <Grid>
                     <Grid.RowDefinitions>
@@ -472,7 +440,6 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Toolbar -->
                     <Border Grid.Row="0"
                             Background="{StaticResource Bg1}"
                             BorderBrush="{StaticResource Line}"
@@ -494,7 +461,7 @@
                             <TextBox  Grid.Column="1" x:Name="ModsRootTextBox"/>
                             <Button   Grid.Column="3" Content="BROWSE"   Click="OnBrowseModsRoot"    Width="80"/>
                             <Button   Grid.Column="5" Content="⟳ REFRESH" Click="OnRefreshModFolders" Width="100"/>
-                            <Button   Grid.Column="7" Style="{StaticResource BtnGreen}"
+                            <Button   Grid.Column="7" Classes="BtnGreen"
                                       Content="💾 SAVE SETTINGS" Click="OnSaveSettings" Width="150"/>
                         </Grid>
                     </Border>
@@ -506,17 +473,15 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- LEFT: combine controls + folders list + profiles -->
                         <DockPanel Grid.Column="0" Background="{StaticResource Bg1}" LastChildFill="True">
-
-                            <!-- Combine controls (preset-driven XML merger) -->
                             <ScrollViewer DockPanel.Dock="Top"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           MaxHeight="430">
                             <StackPanel Margin="12,12,12,8">
-                                <TextBlock Text="// XML COMBINER" Style="{StaticResource SectionLabel}" Margin="0,0,0,8"/>
-                                <CheckBox x:Name="CombineAllCheckBox" Content="combine matching files across mods" IsChecked="True"/>
+                                <TextBlock Text="// XML COMBINER" Classes="SectionLabel" Margin="0,0,0,8"/>
+                                <CheckBox x:Name="CombineAllCheckBox" Content="combine matching files across mods" IsChecked="True"
+                                          IsCheckedChanged="OnCombineAllChanged"/>
 
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
@@ -587,30 +552,27 @@
                                 </Grid>
 
                                 <TextBlock Text="// EXCLUDE DIRS (one mod folder per line, e.g. @CF)"
-                                           Style="{StaticResource SectionLabel}" Margin="0,10,0,4"/>
+                                           Classes="SectionLabel" Margin="0,10,0,4"/>
                                 <TextBox x:Name="XmlGenExcludeDirsTextBox"
                                          AcceptsReturn="True"
                                          TextWrapping="NoWrap"
-                                         VerticalScrollBarVisibility="Auto"
                                          MinHeight="48" MaxHeight="120"
-                                         FontFamily="Consolas"
-                                         ToolTip="Mod-folder leaf names to skip during XML auto-generation (combine, preview, pre-start merge). Case-insensitive. Lines starting with # are ignored."/>
+                                         ToolTip.Tip="Mod-folder leaf names to skip during XML auto-generation. Case-insensitive. Lines starting with # are ignored."/>
 
-                                <Button Style="{StaticResource BtnGreen}" Content="▶ COMBINE FILES"
+                                <Button Classes="BtnGreen" Content="▶ COMBINE FILES"
                                         Click="OnGenerateCombinedTypes" Margin="0,10,0,0"/>
                                 <Button Content="◑ PREVIEW (DRY-RUN)"
                                         Click="OnPreviewCombinedTypes" Margin="0,6,0,0"/>
                             </StackPanel>
                             </ScrollViewer>
 
-                            <!-- Profiles -->
                             <Border DockPanel.Dock="Bottom"
                                     Background="{StaticResource Bg2}"
                                     BorderBrush="{StaticResource Line}"
                                     BorderThickness="0,1,0,0"
                                     Padding="12,10">
                                 <StackPanel>
-                                    <TextBlock Text="// PROFILES" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <TextBlock Text="// PROFILES" Classes="SectionLabel" Margin="0,0,0,6"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
@@ -630,7 +592,7 @@
                                     BorderBrush="{StaticResource Line}"
                                     BorderThickness="0,1,0,1"
                                     Padding="12,8">
-                                <TextBlock Text="// MOD FOLDERS" Style="{StaticResource SectionLabel}"/>
+                                <TextBlock Text="// MOD FOLDERS" Classes="SectionLabel"/>
                             </Border>
 
                             <ListBox x:Name="ModFoldersListBox"
@@ -641,9 +603,8 @@
 
                         <Rectangle Grid.Column="1" Fill="{StaticResource Line}"/>
 
-                        <!-- RIGHT: folder details / XML viewer -->
                         <DockPanel Grid.Column="2" Background="{StaticResource Bg}" LastChildFill="True">
-                            <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                            <Border DockPanel.Dock="Top" Classes="PanelBar">
                                 <DockPanel LastChildFill="True">
                                     <TextBlock Text="04" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
                                     <TextBlock Text="  // FOLDER DETAILS" Foreground="{StaticResource Muted}"
@@ -655,8 +616,6 @@
                                      IsReadOnly="True"
                                      TextWrapping="Wrap"
                                      AcceptsReturn="True"
-                                     VerticalScrollBarVisibility="Auto"
-                                     HorizontalScrollBarVisibility="Auto"
                                      Background="{StaticResource Bg}"
                                      BorderThickness="0"
                                      Padding="14"
@@ -671,17 +630,16 @@
             <!-- ════════ TAB 3: SERVER ════════ -->
             <TabItem>
                 <TabItem.Header>
-                    <TextBlock Text="&#x2630;" ToolTip="SERVER"/>
+                    <TextBlock Text="&#x2630;" ToolTip.Tip="SERVER"/>
                 </TabItem.Header>
                 <DockPanel LastChildFill="True">
-                    <!-- Header: status pill + control buttons -->
-                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                    <Border DockPanel.Dock="Top" Classes="PanelBar">
                         <DockPanel LastChildFill="True">
                             <TextBlock Text="07" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
                             <TextBlock Text="  // SERVER" Foreground="{StaticResource Muted}"
                                        FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
                             <Border DockPanel.Dock="Right" x:Name="ServerStatusPill"
-                                    Style="{StaticResource Pill}" HorizontalAlignment="Right">
+                                    Classes="Pill" HorizontalAlignment="Right">
                                 <StackPanel Orientation="Horizontal">
                                     <Ellipse x:Name="ServerStatusDot" Width="6" Height="6"
                                              Fill="{StaticResource Muted}" VerticalAlignment="Center"/>
@@ -699,16 +657,15 @@
                         </DockPanel>
                     </Border>
 
-                    <!-- Control buttons row -->
                     <Border DockPanel.Dock="Top"
                             Background="{StaticResource Bg1}"
                             BorderBrush="{StaticResource Line}"
                             BorderThickness="0,0,0,1"
                             Padding="12,10">
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="ServerStartButton" Style="{StaticResource BtnGreen}"
+                            <Button x:Name="ServerStartButton" Classes="BtnGreen"
                                     Content="▶ START" Width="120" Click="OnServerStart"/>
-                            <Button x:Name="ServerStopButton" Style="{StaticResource BtnRed}"
+                            <Button x:Name="ServerStopButton" Classes="BtnRed"
                                     Content="■ STOP" Width="100" Margin="6,0,0,0"
                                     Click="OnServerStop" IsEnabled="False"/>
                             <Button x:Name="ServerRestartButton" Content="↻ RESTART"
@@ -724,28 +681,25 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Configuration form -->
                     <Expander DockPanel.Dock="Top" Header="// SETUP" IsExpanded="True"
                               Foreground="{StaticResource Muted}" Margin="12,8,12,0">
                         <StackPanel Margin="0,8,0,0">
-                            <!-- Mode -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <TextBlock Text="MODE:" Foreground="{StaticResource Muted}"
                                            FontSize="10" FontWeight="Bold" VerticalAlignment="Center"
                                            Margin="0,0,8,0"/>
                                 <RadioButton x:Name="ModePs1Radio" Content="invoke servermanager.ps1"
-                                             GroupName="ServerMode" Foreground="{StaticResource Sub}"
+                                             GroupName="ServerMode"
                                              Margin="0,0,14,0"
-                                             Checked="OnServerModeChanged"/>
+                                             IsCheckedChanged="OnServerModeChanged"/>
                                 <RadioButton x:Name="ModeDirectRadio" Content="launch DayZServer_x64.exe directly"
-                                             GroupName="ServerMode" Foreground="{StaticResource Sub}"
+                                             GroupName="ServerMode"
                                              IsChecked="True"
-                                             Checked="OnServerModeChanged"/>
+                                             IsCheckedChanged="OnServerModeChanged"/>
                             </StackPanel>
 
-                            <!-- Mode A (ps1) panel -->
-                            <StackPanel x:Name="ModePs1Panel" Visibility="Collapsed">
-                                <TextBlock Text="// SERVERMANAGER.PS1" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                            <StackPanel x:Name="ModePs1Panel" IsVisible="False">
+                                <TextBlock Text="// SERVERMANAGER.PS1" Classes="SectionLabel" Margin="0,4,0,4"/>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,8">
                                     <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
                                             Click="OnServerBrowsePs1"/>
@@ -777,7 +731,7 @@
                                     </ComboBox>
                                     <TextBlock Grid.Column="6" Text="-update:" Foreground="{StaticResource Muted}"
                                                FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"
-                                               ToolTip="Used by UPDATE MODS button in ps1 mode"/>
+                                               ToolTip.Tip="Used by UPDATE MODS button in ps1 mode"/>
                                     <ComboBox Grid.Column="7" x:Name="Ps1UpdateTargetComboBox" SelectedIndex="2">
                                         <ComboBoxItem Content="server"/>
                                         <ComboBoxItem Content="mod"/>
@@ -786,28 +740,27 @@
                                 </Grid>
                             </StackPanel>
 
-                            <!-- Mode B (direct exe) panel -->
                             <StackPanel x:Name="ModeDirectPanel">
-                                <TextBlock Text="// DAYZSERVER_X64.EXE" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                <TextBlock Text="// DAYZSERVER_X64.EXE" Classes="SectionLabel" Margin="0,4,0,4"/>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,6">
                                     <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
                                             Click="OnServerBrowseExe"/>
                                     <TextBox x:Name="ServerExePathTextBox"/>
                                 </DockPanel>
 
-                                <TextBlock Text="// SERVER PROFILE DIR (RPT logs)" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                <TextBlock Text="// SERVER PROFILE DIR (RPT logs)" Classes="SectionLabel" Margin="0,4,0,4"/>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,6">
                                     <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
                                             Click="OnServerBrowseProfile"/>
                                     <TextBox x:Name="ServerProfileDirTextBox"/>
                                 </DockPanel>
 
-                                <TextBlock Text="// SERVER ROOT DIR (@mod deploy target)" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                <TextBlock Text="// SERVER ROOT DIR (@mod deploy target)" Classes="SectionLabel" Margin="0,4,0,4"/>
                                 <DockPanel LastChildFill="True" Margin="0,0,0,6">
                                     <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
                                             Click="OnServerBrowseRoot"/>
                                     <TextBox x:Name="ServerRootDirTextBox"
-                                             ToolTip="Where @modname junctions/symlinks/copies are placed. Defaults to the folder containing the server exe."/>
+                                             ToolTip.Tip="Where @modname junctions/symlinks/copies are placed. Defaults to the folder containing the server exe."/>
                                 </DockPanel>
 
                                 <Grid Margin="0,4,0,6">
@@ -830,12 +783,11 @@
                                               Content="BattlEye" IsChecked="True"/>
                                 </Grid>
 
-                                <!-- SteamCMD group -->
                                 <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
                                     <StackPanel>
-                                        <TextBlock Text="// STEAMCMD" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                        <TextBlock Text="// STEAMCMD" Classes="SectionLabel" Margin="0,0,0,6"/>
 
-                                        <TextBlock Text="STEAMCMD.EXE PATH" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                        <TextBlock Text="STEAMCMD.EXE PATH" Classes="SectionLabel" Margin="0,4,0,4"/>
                                         <DockPanel LastChildFill="True" Margin="0,0,0,6">
                                             <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
                                                     Click="OnServerBrowseSteamCmd"/>
@@ -843,14 +795,14 @@
                                         </DockPanel>
 
                                         <TextBlock Text="MOD CACHE DIR (auto = SteamCMD dir; workshop content lives under it)"
-                                                   Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                                   Classes="SectionLabel" Margin="0,4,0,4"/>
                                         <DockPanel LastChildFill="True" Margin="0,0,0,6">
                                             <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0"
                                                     IsEnabled="False"
                                                     Click="OnServerBrowseModCache"/>
                                             <TextBox x:Name="ModCacheDirTextBox"
                                                      IsReadOnly="True"
-                                                     ToolTip="Auto-derived from steamcmd.exe path. Workshop content goes to &lt;dir&gt;\steamapps\workshop\content\&lt;appid&gt;\..., then is copied/linked into the server root."/>
+                                                     ToolTip.Tip="Auto-derived from steamcmd.exe path. Workshop content goes to &lt;dir&gt;/steamapps/workshop/content/&lt;appid&gt;/..., then is copied/linked into the server root."/>
                                         </DockPanel>
 
                                         <Grid Margin="0,4,0,6">
@@ -865,10 +817,10 @@
                                                        FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                                 <RadioButton x:Name="LoginAnonymousRadio" Content="anonymous"
-                                                             GroupName="LoginMode" Foreground="{StaticResource Sub}"
+                                                             GroupName="LoginMode"
                                                              Margin="0,0,14,0"/>
                                                 <RadioButton x:Name="LoginInteractiveRadio" Content="interactive (Steam account)"
-                                                             GroupName="LoginMode" Foreground="{StaticResource Sub}"
+                                                             GroupName="LoginMode"
                                                              IsChecked="True"/>
                                             </StackPanel>
                                             <TextBlock Grid.Column="3" Text="username:" Foreground="{StaticResource Muted}"
@@ -912,10 +864,9 @@
                                 </Border>
                             </StackPanel>
 
-                            <!-- Auto-restart -->
                             <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
                                 <StackPanel>
-                                    <TextBlock Text="// AUTO-RESTART" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <TextBlock Text="// AUTO-RESTART" Classes="SectionLabel" Margin="0,0,0,6"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
@@ -937,10 +888,9 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- Pre-start XML merge -->
                             <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
                                 <StackPanel>
-                                    <TextBlock Text="// PRE-START XML MERGE" Style="{StaticResource SectionLabel}" Margin="0,0,0,6"/>
+                                    <TextBlock Text="// PRE-START XML MERGE" Classes="SectionLabel" Margin="0,0,0,6"/>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
@@ -958,13 +908,12 @@
                             </Border>
 
                             <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
-                                <Button Style="{StaticResource BtnGreen}" Content="💾 SAVE SERVER SETTINGS"
+                                <Button Classes="BtnGreen" Content="💾 SAVE SERVER SETTINGS"
                                         HorizontalAlignment="Left" Width="220" Click="OnSaveSettings"/>
                             </Border>
                         </StackPanel>
                     </Expander>
 
-                    <!-- Log tail toolbar -->
                     <Border DockPanel.Dock="Top"
                             Background="{StaticResource Bg1}"
                             BorderBrush="{StaticResource Line}"
@@ -989,13 +938,10 @@
                         </DockPanel>
                     </Border>
 
-                    <!-- Log tail -->
                     <TextBox x:Name="ServerLogTextBox"
                              IsReadOnly="True"
                              AcceptsReturn="True"
                              TextWrapping="NoWrap"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"
                              Background="{StaticResource Bg}"
                              BorderThickness="0"
                              Padding="14"
@@ -1008,10 +954,10 @@
             <!-- ════════ TAB 4: HISTORY ════════ -->
             <TabItem>
                 <TabItem.Header>
-                    <TextBlock Text="&#x21BA;" ToolTip="HISTORY"/>
+                    <TextBlock Text="&#x21BA;" ToolTip.Tip="HISTORY"/>
                 </TabItem.Header>
                 <DockPanel LastChildFill="True">
-                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                    <Border DockPanel.Dock="Top" Classes="PanelBar">
                         <DockPanel LastChildFill="True">
                             <TextBlock Text="05" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
                             <TextBlock Text="  // MODS.TXT HISTORY" Foreground="{StaticResource Muted}"
@@ -1025,21 +971,21 @@
                 </DockPanel>
             </TabItem>
 
-            <!-- ════════ TAB: AI BALANCER ════════ -->
+            <!-- ════════ TAB 5: AI BALANCER ════════ -->
             <TabItem>
                 <TabItem.Header>
-                    <TextBlock Text="&#x2728;" ToolTip="AI BALANCER"/>
+                    <TextBlock Text="&#x2728;" ToolTip.Tip="AI BALANCER"/>
                 </TabItem.Header>
                 <ctl:AiBalancerTab/>
             </TabItem>
 
-            <!-- ════════ TAB 4: SETTINGS ════════ -->
+            <!-- ════════ TAB 6: SETTINGS ════════ -->
             <TabItem>
                 <TabItem.Header>
-                    <TextBlock Text="&#x2699;" ToolTip="SETTINGS"/>
+                    <TextBlock Text="&#x2699;" ToolTip.Tip="SETTINGS"/>
                 </TabItem.Header>
                 <DockPanel LastChildFill="True">
-                    <Border DockPanel.Dock="Top" Style="{StaticResource PanelBar}">
+                    <Border DockPanel.Dock="Top" Classes="PanelBar">
                         <DockPanel LastChildFill="True">
                             <TextBlock Text="06" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
                             <TextBlock Text="  // SETTINGS" Foreground="{StaticResource Muted}"
@@ -1060,29 +1006,27 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <!-- Paths card -->
-                            <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Card}">
+                            <Border Grid.Row="0" Grid.Column="0" Classes="Card">
                                 <StackPanel>
                                     <TextBlock Text="PATHS" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="11"/>
                                     <TextBlock Text="// disk locations used by the manager" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,16"/>
 
-                                    <TextBlock Text="LOCAL MODS.TXT" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
+                                    <TextBlock Text="LOCAL MODS.TXT" Classes="SectionLabel" Margin="0,0,0,4"/>
                                     <DockPanel LastChildFill="True" Margin="0,0,0,10">
                                         <Button DockPanel.Dock="Right" Content="BROWSE" Width="72" Margin="6,0,0,0" Click="OnBrowseLocalFile"/>
                                         <TextBlock Text="(uses LocalFilePathTextBox above)" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center"/>
                                     </DockPanel>
 
-                                    <TextBlock Text="MODS ROOT" Style="{StaticResource SectionLabel}" Margin="0,4,0,4"/>
+                                    <TextBlock Text="MODS ROOT" Classes="SectionLabel" Margin="0,4,0,4"/>
                                     <TextBlock Text="(uses ModsRootTextBox in MOD FOLDERS tab)" Foreground="{StaticResource Muted}" FontSize="10"/>
 
                                     <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Margin="0,14,0,0" Padding="0,10,0,0">
-                                        <Button Style="{StaticResource BtnGreen}" Content="💾 SAVE SETTINGS" Click="OnSaveSettings" HorizontalAlignment="Left" Width="180"/>
+                                        <Button Classes="BtnGreen" Content="💾 SAVE SETTINGS" Click="OnSaveSettings" HorizontalAlignment="Left" Width="180"/>
                                     </Border>
                                 </StackPanel>
                             </Border>
 
-                            <!-- Connections card -->
-                            <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource Card}">
+                            <Border Grid.Row="0" Grid.Column="2" Classes="Card">
                                 <StackPanel>
                                     <TextBlock Text="CONNECTIONS" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="11"/>
                                     <TextBlock Text="// external services" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,16"/>
@@ -1102,8 +1046,7 @@
                                 </StackPanel>
                             </Border>
 
-                            <!-- About card -->
-                            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Style="{StaticResource Card}">
+                            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Classes="Card">
                                 <StackPanel>
                                     <TextBlock Text="ABOUT" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="11"/>
                                     <TextBlock Text="// DayZ Mod Manager — SCP LEGION" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,2,0,12"/>

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds DayZ Mod Manager (WPF, .NET 8) and packs the output into a zip.
+    Builds DayZ Mod Manager (Avalonia, .NET 8) and packs the output into a zip.
 
 .DESCRIPTION
     Runs `dotnet publish` for the DayZModManager project and zips the result
