@@ -425,8 +425,7 @@
                                 Background="{StaticResource Bg1}"
                                 BorderBrush="{StaticResource Line}"
                                 BorderThickness="0,0,1,0">
-                            <ItemsPresenter Name="PART_ItemsPresenter"
-                                            Background="Transparent"/>
+                            <ItemsPresenter Name="PART_ItemsPresenter"/>
                         </Border>
                         <Border Grid.Column="1" Background="{StaticResource Bg}">
                             <ContentPresenter Name="PART_SelectedContentHost"/>
@@ -488,7 +487,6 @@
         <Style Selector="ScrollBar:horizontal">
             <Setter Property="Height" Value="8"/>
             <Setter Property="MinHeight" Value="8"/>
-            <Setter Property="Width" Value="Auto"/>
         </Style>
 
     </Application.Styles>

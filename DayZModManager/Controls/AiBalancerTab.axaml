@@ -196,10 +196,10 @@
                             <TextBlock x:Name="TaskTokensText" Foreground="{StaticResource Muted}" FontSize="11" Margin="14,4,0,0" Text=""/>
                         </StackPanel>
                         <TextBlock x:Name="TaskNotesText" Foreground="{StaticResource Sub}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" Text=""/>
-                        <DataGrid x:Name="TaskPlanGrid" Height="180" AutoGenerateColumns="False" CanUserAddRows="False"
+                        <DataGrid x:Name="TaskPlanGrid" Height="180" AutoGenerateColumns="False"
                                   HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                                   Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"
-                                  RowBackground="{StaticResource Bg1}" AlternatingRowBackground="{StaticResource Bg2}">
+                                  RowBackground="{StaticResource Bg1}">
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="OK" Binding="{Binding IsApproved}" Width="40"/>
                                 <DataGridTextColumn Header="Action" Binding="{Binding Kind}" IsReadOnly="True" Width="110"/>
@@ -245,10 +245,10 @@
                             <CheckBox Grid.Column="3" x:Name="ShowCraftedCheck" Content="Show crafted" Margin="10,4,0,0" IsCheckedChanged="OnEconomyFilterChanged"/>
                         </Grid>
 
-                        <DataGrid x:Name="EconomyGrid" Height="280" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                        <DataGrid x:Name="EconomyGrid" Height="280" AutoGenerateColumns="False" IsReadOnly="True"
                                   HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                                   Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"
-                                  RowBackground="{StaticResource Bg1}" AlternatingRowBackground="{StaticResource Bg2}">
+                                  RowBackground="{StaticResource Bg1}">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="ClassName" Binding="{Binding ClassName}" Width="250"/>
                                 <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="100"/>
@@ -307,7 +307,7 @@
 
                         <TextBlock Text="// LOG" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" Margin="0,10,0,4"/>
                         <TextBox x:Name="LogBox" Height="160" IsReadOnly="True" TextWrapping="NoWrap"
-                                 HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  Background="{StaticResource Bg2}" Foreground="{StaticResource Sub}"
                                  FontFamily="{StaticResource MonoFont}" FontSize="11"/>
                     </StackPanel>
@@ -348,10 +348,10 @@
                             <CheckBox Grid.Column="4" x:Name="OnlySevereCheck" Content="Severe only" Margin="10,4,0,0" IsCheckedChanged="OnSuggestionFilterChanged"/>
                         </Grid>
 
-                        <DataGrid x:Name="SuggestionsGrid" Height="320" AutoGenerateColumns="False" CanUserAddRows="False"
+                        <DataGrid x:Name="SuggestionsGrid" Height="320" AutoGenerateColumns="False"
                                   HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                                   Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"
-                                  RowBackground="{StaticResource Bg1}" AlternatingRowBackground="{StaticResource Bg2}">
+                                  RowBackground="{StaticResource Bg1}">
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="OK" Binding="{Binding IsApproved}" Width="40"/>
                                 <DataGridTextColumn Header="ClassName" Binding="{Binding ClassName}" IsReadOnly="True" Width="220"/>
