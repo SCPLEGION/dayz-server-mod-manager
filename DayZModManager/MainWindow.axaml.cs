@@ -15,8 +15,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using MsBox.Avalonia;
-using MsBox.Avalonia.Enums;
+using DayZModManager.Helpers;
 using DayZModManager.Services;
 
 namespace DayZModManager;
@@ -401,10 +400,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var result = await MessageBoxManager
-                .GetMessageBoxStandard("Preview mods.txt change", $"Remove {id} from mods.txt?", ButtonEnum.OkCancel, Icon.Warning)
-                .ShowWindowDialogAsync(this);
-            if (result != ButtonResult.Ok) return;
+            if (!await MsgBox.Confirm(this, $"Remove {id} from mods.txt?", "Preview mods.txt change")) return;
 
             var removed = ModStorage.RemoveId(modsPath, id);
             LocalStatusTextBlock.Text = removed ? $"Removed {id}." : $"ID {id} not found.";
@@ -496,10 +492,7 @@ public partial class MainWindow : Window
             }
 
             var preview = BuildModsTxtAddPreview(toAdd, apiKey);
-            var result = await MessageBoxManager
-                .GetMessageBoxStandard("Preview mods.txt changes", preview, ButtonEnum.OkCancel, Icon.Info)
-                .ShowWindowDialogAsync(this);
-            if (result != ButtonResult.Ok) return;
+            if (!await MsgBox.Confirm(this, preview, "Preview mods.txt changes")) return;
 
             existing.UnionWith(toAdd);
             ModStorage.SaveIdsFromSet(modsTxtPath, existing);
@@ -556,11 +549,7 @@ public partial class MainWindow : Window
             if (invalid.Count > 0)
             {
                 AddStatusTextBlock.Text = $"Invalid lines: {invalid.Count} (showing first 5).";
-                await MessageBoxManager
-                    .GetMessageBoxStandard("Bulk add - invalid IDs",
-                        "Invalid ID lines:\n" + string.Join(Environment.NewLine, invalid.Take(5)),
-                        ButtonEnum.Ok, Icon.Warning)
-                    .ShowWindowDialogAsync(this);
+                await MsgBox.Info(this, "Invalid ID lines:\n" + string.Join(Environment.NewLine, invalid.Take(5)), "Bulk add - invalid IDs");
                 return;
             }
 
@@ -583,10 +572,7 @@ public partial class MainWindow : Window
             if (toAdd.Length == 0) { AddStatusTextBlock.Text = "Nothing to add (already in mods.txt)."; return; }
 
             var preview = BuildModsTxtAddPreview(toAdd, apiKey);
-            var result = await MessageBoxManager
-                .GetMessageBoxStandard("Preview mods.txt changes", preview, ButtonEnum.OkCancel, Icon.Info)
-                .ShowWindowDialogAsync(this);
-            if (result != ButtonResult.Ok) return;
+            if (!await MsgBox.Confirm(this, preview, "Preview mods.txt changes")) return;
 
             existing.UnionWith(toAdd);
             ModStorage.SaveIdsFromSet(modsTxtPath, existing);
@@ -641,9 +627,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
             AddStatusTextBlock.Text = "Building dependency tree...";
             var tree = await BuildDependencyTreeTextAsync(item.PublishedFileId, apiKey, maxDepth: 8, maxNodes: 250);
-            await MessageBoxManager
-                .GetMessageBoxStandard($"Dependency tree: {item.PublishedFileId}", tree, ButtonEnum.Ok, Icon.Info)
-                .ShowWindowDialogAsync(this);
+            await MsgBox.Info(this, tree, $"Dependency tree: {item.PublishedFileId}");
             AddStatusTextBlock.Text = "Tree shown.";
         }
         catch (Exception ex) { AddStatusTextBlock.Text = ex.Message; }
@@ -949,9 +933,7 @@ public partial class MainWindow : Window
         };
         AppConfigStore.Save(cfg);
         ApplyServerConfigToController(cfg.Server);
-        await MessageBoxManager
-            .GetMessageBoxStandard("Saved", "Settings saved.", ButtonEnum.Ok, Icon.Info)
-            .ShowWindowDialogAsync(this);
+        await MsgBox.Info(this, "Settings saved.", "Saved");
     }
 
     private async void OnExportProfile(object? sender, RoutedEventArgs e)
@@ -988,15 +970,11 @@ public partial class MainWindow : Window
 
             var json = JsonSerializer.Serialize(profile, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
             File.WriteAllText(file.Path.LocalPath, json, Encoding.UTF8);
-            await MessageBoxManager
-                .GetMessageBoxStandard("Export", "Profile exported.", ButtonEnum.Ok, Icon.Info)
-                .ShowWindowDialogAsync(this);
+            await MsgBox.Info(this, "Profile exported.", "Export");
         }
         catch (Exception ex)
         {
-            await MessageBoxManager
-                .GetMessageBoxStandard("Export failed", ex.Message, ButtonEnum.Ok, Icon.Error)
-                .ShowWindowDialogAsync(this);
+            await MsgBox.Info(this, ex.Message, "Export failed");
         }
     }
 
@@ -1048,9 +1026,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            await MessageBoxManager
-                .GetMessageBoxStandard("Import failed", ex.Message, ButtonEnum.Ok, Icon.Error)
-                .ShowWindowDialogAsync(this);
+            await MsgBox.Info(this, ex.Message, "Import failed");
         }
     }
 

@@ -15,8 +15,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using DayZModManager.Models;
 using DayZModManager.Services;
-using MsBox.Avalonia;
-using MsBox.Avalonia.Enums;
+using DayZModManager.Helpers;
 
 namespace DayZModManager.Controls;
 
@@ -362,7 +361,7 @@ public partial class AiBalancerTab : UserControl
         {
             Title = "Select XML file",
             AllowMultiple = false,
-            FileTypeFilter = new[] { new FilePickerFileType("XML files") { Patterns = new[] { "*.xml" } }, FilePickerFileType.All },
+            FileTypeFilter = new[] { new FilePickerFileType("XML files") { Patterns = new[] { "*.xml" } }, new FilePickerFileType("All files") { Patterns = new[] { "*" } } },
         });
         if (files.Count > 0)
             target.Text = files[0].TryGetLocalPath() ?? files[0].Path.LocalPath;
@@ -568,12 +567,7 @@ public partial class AiBalancerTab : UserControl
         }
 
         var backupNote = BackupCheck.IsChecked == true ? "Original will be backed up." : "No backup will be created.";
-        var result = await MessageBoxManager
-            .GetMessageBoxStandard("Confirm apply",
-                $"Apply {approvedRows.Count} field change(s) to types.xml?\n{backupNote}",
-                ButtonEnum.YesNo, Icon.Question)
-            .ShowWindowDialogAsync(GetParentWindow());
-        if (result != ButtonResult.Yes) return;
+        if (!await MsgBox.Confirm(GetParentWindow(), $"Apply {approvedRows.Count} field change(s) to types.xml?\n{backupNote}", "Confirm apply")) return;
 
         var byClass = approvedRows.GroupBy(r => r.ClassName, StringComparer.OrdinalIgnoreCase);
         var toApply = new List<BalanceSuggestion>();
@@ -718,7 +712,7 @@ public partial class AiBalancerTab : UserControl
             FileTypeFilter = new[]
             {
                 new FilePickerFileType("DayZ Server exe") { Patterns = new[] { "DayZServer_x64.exe" } },
-                FilePickerFileType.All,
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } },
             },
         });
         if (files.Count > 0)
@@ -739,7 +733,7 @@ public partial class AiBalancerTab : UserControl
             FileTypeFilter = new[]
             {
                 new FilePickerFileType("Mission init") { Patterns = new[] { "init.c" } },
-                FilePickerFileType.All,
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } },
             },
         });
         if (files.Count > 0)
@@ -838,12 +832,7 @@ public partial class AiBalancerTab : UserControl
         var summary = string.Join("\n", approved.Take(8).Select(a => "  • " + a.Summary));
         if (approved.Count > 8) summary += $"\n  …and {approved.Count - 8} more";
         var backupNote = TaskBackupCheck.IsChecked == true ? "Files will be backed up first." : "No backup will be created.";
-        var result = await MessageBoxManager
-            .GetMessageBoxStandard("Confirm AI task apply",
-                $"Apply {approved.Count} approved action(s)?\n\n{summary}\n\n{backupNote}",
-                ButtonEnum.YesNo, Icon.Question)
-            .ShowWindowDialogAsync(GetParentWindow());
-        if (result != ButtonResult.Yes) return;
+        if (!await MsgBox.Confirm(GetParentWindow(), $"Apply {approved.Count} approved action(s)?\n\n{summary}\n\n{backupNote}", "Confirm AI task apply")) return;
 
         try
         {
@@ -876,15 +865,7 @@ public partial class AiBalancerTab : UserControl
 
     private Window? GetParentWindow() => TopLevel.GetTopLevel(this) as Window;
 
-    private Task ShowInfo(string msg) =>
-        MessageBoxManager.GetMessageBoxStandard("AI Balancer", msg, ButtonEnum.Ok, Icon.Info)
-            .ShowWindowDialogAsync(GetParentWindow());
-
-    private Task ShowWarning(string msg) =>
-        MessageBoxManager.GetMessageBoxStandard("AI Balancer", msg, ButtonEnum.Ok, Icon.Warning)
-            .ShowWindowDialogAsync(GetParentWindow());
-
-    private Task ShowError(string msg) =>
-        MessageBoxManager.GetMessageBoxStandard("AI Balancer", msg, ButtonEnum.Ok, Icon.Error)
-            .ShowWindowDialogAsync(GetParentWindow());
+    private Task ShowInfo(string msg) => MsgBox.Info(GetParentWindow(), msg, "AI Balancer");
+    private Task ShowWarning(string msg) => MsgBox.Info(GetParentWindow(), msg, "AI Balancer");
+    private Task ShowError(string msg) => MsgBox.Info(GetParentWindow(), msg, "AI Balancer");
 }
