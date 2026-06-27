@@ -21,8 +21,8 @@ internal sealed class ServerProcessController : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private Process? _process;
-    private bool _intentionalStop;
-    private int _retryCount;
+    private volatile bool _intentionalStop;
+    private int _retryCount; // accessed via Interlocked
     private CancellationTokenSource? _autoRestartCts;
     private ServerLaunchSpec? _lastSpec;
     private DateTime? _startedAt;
@@ -59,6 +59,9 @@ internal sealed class ServerProcessController : IDisposable
 
             if (!_process.Start())
             {
+                _process.Exited -= OnProcessExited;
+                _process.Dispose();
+                _process = null;
                 SetState(ServerState.Stopped);
                 ServerHistoryLogger.Append("start-failed", spec.Mode.ToString(), detail: "Process.Start returned false");
                 return;
@@ -69,15 +72,16 @@ internal sealed class ServerProcessController : IDisposable
             SetState(ServerState.Running);
 
             // Reset retry counter after a successful long-lived launch.
+            var resetToken = _autoRestartCts?.Token ?? CancellationToken.None;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
-                    if (State == ServerState.Running) _retryCount = 0;
+                    await Task.Delay(TimeSpan.FromSeconds(60), resetToken).ConfigureAwait(false);
+                    if (State == ServerState.Running) Interlocked.Exchange(ref _retryCount, 0);
                 }
-                catch { }
-            });
+                catch (OperationCanceledException) { /* stopped before 60s — expected */ }
+            }, resetToken);
         }
         finally
         {
@@ -131,18 +135,26 @@ internal sealed class ServerProcessController : IDisposable
     /// </summary>
     public void Detach()
     {
+        _gate.Wait();
         try
         {
-            if (_process != null)
+            try
             {
-                _process.EnableRaisingEvents = false;
-                _process.Exited -= OnProcessExited;
+                if (_process != null)
+                {
+                    _process.EnableRaisingEvents = false;
+                    _process.Exited -= OnProcessExited;
+                }
             }
+            catch { }
+            _process = null;
+            _autoRestartCts?.Cancel();
+            SetState(ServerState.Stopped);
         }
-        catch { }
-        _process = null;
-        _autoRestartCts?.Cancel();
-        SetState(ServerState.Stopped);
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>Attach to an externally running server (best-effort).</summary>
@@ -182,19 +194,21 @@ internal sealed class ServerProcessController : IDisposable
 
             if (crashed && AutoRestartOnCrash && _lastSpec != null)
             {
-                if (_retryCount >= AutoRestartMaxRetries)
+                var currentRetries = Interlocked.CompareExchange(ref _retryCount, 0, 0);
+                if (currentRetries >= AutoRestartMaxRetries)
                 {
                     SetState(ServerState.Crashed);
                     ServerHistoryLogger.Append("auto-restart-cap-hit", _lastSpec.Mode.ToString(),
-                        detail: $"retries={_retryCount}");
+                        detail: $"retries={currentRetries}");
                     return;
                 }
 
-                _retryCount++;
+                var retry = Interlocked.Increment(ref _retryCount);
                 _autoRestartCts?.Dispose();
                 _autoRestartCts = new CancellationTokenSource();
                 var token = _autoRestartCts.Token;
                 var backoff = TimeSpan.FromSeconds(AutoRestartBackoffSeconds);
+                var spec = _lastSpec;
 
                 _ = Task.Run(async () =>
                 {
@@ -202,11 +216,17 @@ internal sealed class ServerProcessController : IDisposable
                     {
                         await Task.Delay(backoff, token).ConfigureAwait(false);
                         if (token.IsCancellationRequested) return;
-                        ServerHistoryLogger.Append("auto-restart", _lastSpec.Mode.ToString(),
-                            detail: $"retry={_retryCount}/{AutoRestartMaxRetries}");
-                        await StartAsync(_lastSpec, token).ConfigureAwait(false);
+                        ServerHistoryLogger.Append("auto-restart", spec.Mode.ToString(),
+                            detail: $"retry={retry}/{AutoRestartMaxRetries}");
+                        await StartAsync(spec, token).ConfigureAwait(false);
                     }
-                    catch { /* swallow; state stays Crashed if we fail */ }
+                    catch (OperationCanceledException) { /* stopped intentionally */ }
+                    catch (Exception ex)
+                    {
+                        ServerHistoryLogger.Append("auto-restart-failed",
+                            spec.Mode.ToString(), detail: ex.Message);
+                        SetState(ServerState.Crashed);
+                    }
                 });
             }
             else
