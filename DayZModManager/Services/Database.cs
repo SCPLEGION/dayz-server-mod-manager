@@ -115,6 +115,11 @@ internal static class Database
             );
             CREATE INDEX IF NOT EXISTS ix_balance_suggestions_created ON balance_suggestions(created_utc DESC);
 
+            CREATE TABLE IF NOT EXISTS mod_deploy_state (
+                workshop_id         INTEGER PRIMARY KEY,
+                deployed_time_unix  INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS task_proposals (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_utc   TEXT NOT NULL,

@@ -171,9 +171,12 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="6"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <Button Grid.Column="0" Classes="BtnGreen" Content="⟳ REFRESH" Click="OnRefreshLocal"/>
-                                <Button Grid.Column="2" Classes="BtnRed"   Content="✕ REMOVE"  Click="OnRemoveSelected"/>
+                                <Button Grid.Column="2" Content="⇪ CHECK UPDATES" Click="OnCheckModUpdates"/>
+                                <Button Grid.Column="4" Classes="BtnRed"   Content="✕ REMOVE"  Click="OnRemoveSelected"/>
                             </Grid>
                         </StackPanel>
 

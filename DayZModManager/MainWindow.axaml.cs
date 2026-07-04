@@ -32,6 +32,7 @@ public partial class MainWindow : Window
 
     private readonly Dictionary<ulong, string?> _titleCache = new();
     private readonly Dictionary<ulong, List<ulong>> _depsCache = new();
+    private readonly HashSet<ulong> _modsWithUpdateAvailable = new();
 
     private ServerProcessController? _server;
     private ServerConfig? _lastAppliedServerConfig;
@@ -340,7 +341,8 @@ public partial class MainWindow : Window
                 {
                     var installed = modsRootExists && Directory.Exists(Path.Combine(modsRoot, id.ToString()));
                     if (installed) installedCount++;
-                    _localItems.Add(installed ? $"{id} (installed)" : id.ToString());
+                    var updateTag = _modsWithUpdateAvailable.Contains(id) ? " [UPDATE AVAILABLE]" : "";
+                    _localItems.Add((installed ? $"{id} (installed)" : id.ToString()) + updateTag);
                 }
                 LocalFooterTextBlock.Text = invalidCount > 0
                     ? $"Loaded {ids.Length} IDs (invalid lines: {invalidCount})."
@@ -374,10 +376,11 @@ public partial class MainWindow : Window
             {
                 var installed = modsRootExists && Directory.Exists(Path.Combine(modsRoot, id.ToString()));
                 if (installed) installedTotal++;
+                var updateTag = _modsWithUpdateAvailable.Contains(id) ? " [UPDATE AVAILABLE]" : "";
                 if (!string.IsNullOrWhiteSpace(title))
-                    _localItems.Add(installed ? $"{id} - {title} (installed)" : $"{id} - {title}");
+                    _localItems.Add((installed ? $"{id} - {title} (installed)" : $"{id} - {title}") + updateTag);
                 else
-                    _localItems.Add(installed ? $"{id} (installed)" : id.ToString());
+                    _localItems.Add((installed ? $"{id} (installed)" : id.ToString()) + updateTag);
             }
 
             LocalFooterTextBlock.Text = invalidCount > 0
@@ -392,6 +395,39 @@ public partial class MainWindow : Window
         finally
         {
             LocalStatusTextBlock.Text = "";
+        }
+    }
+
+    private async void OnCheckModUpdates(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            LocalStatusTextBlock.Text = "Checking for mod updates...";
+            var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
+            if (ids.Count == 0) { LocalStatusTextBlock.Text = "No mods to check."; return; }
+
+            var apiKey = LocalApiKeyTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
+
+            var details = await SteamWorkshopClient.GetPublishedFileDetailsBatchAsync(ids, apiKey);
+            var deployState = ModDeployStateStore.LoadAll();
+
+            _modsWithUpdateAvailable.Clear();
+            foreach (var id in ids)
+            {
+                if (!details.TryGetValue(id, out var d) || d.TimeUpdated is not long updated) continue;
+                if (deployState.TryGetValue(id, out var deployedAt) && updated > deployedAt)
+                    _modsWithUpdateAvailable.Add(id);
+            }
+
+            await RefreshLocalAsync();
+            LocalStatusTextBlock.Text = _modsWithUpdateAvailable.Count == 0
+                ? "Checked - no updates found (note: only mods deployed at least once can be compared)."
+                : $"Checked - {_modsWithUpdateAvailable.Count} mod(s) have updates available.";
+        }
+        catch (Exception ex)
+        {
+            LocalStatusTextBlock.Text = ex.Message;
         }
     }
 
@@ -1875,6 +1911,7 @@ public partial class MainWindow : Window
         {
             var result = SteamCmdClient.DeployMods(workshopRoot, cfg.WorkshopAppId, ids, cfg.ServerRootDir!, cfg.DeployMode);
             names = result.Select(r => r.AtName).ToList();
+            ModDeployStateStore.RecordDeployed(result.Select(r => r.Id), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             ServerHistoryLogger.Append("mods-deployed", cfg.Mode.ToString(), detail: $"count={names.Count} mode={cfg.DeployMode}");
             AppendLogLine($"[manager] deployed {names.Count} mods to {cfg.ServerRootDir}");
         }
