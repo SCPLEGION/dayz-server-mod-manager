@@ -32,6 +32,17 @@ internal static class AppPaths
     public static string DefaultModCacheDir =>
         Path.Combine(ExeDir, "steamcmd-cache");
 
+    /// <summary>
+    /// Default extraction target for a bootstrapped steamcmd.exe. Intentionally the same
+    /// directory as <see cref="DefaultModCacheDir"/> - elsewhere in the app ModCacheDir is always
+    /// derived as "the folder containing steamcmd.exe", so these must never diverge.
+    /// </summary>
+    public static string DefaultSteamCmdDir => DefaultModCacheDir;
+
+    /// <summary>Default install target when the setup wizard downloads a new DayZ server: <c>parent2/DayZServer</c>.</summary>
+    public static string DefaultServerInstallDir =>
+        Path.Combine(ExeDir, "DayZServer");
+
     /// <summary>Resolve a possibly-relative output file path against <see cref="ExeDir"/>.</summary>
     public static string ResolveOutputPath(string maybeRelative)
     {

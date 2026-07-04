@@ -1,0 +1,79 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="DayZModManager.Controls.SetupWizardWindow"
+        Title="DayZ Server Setup"
+        Width="640"
+        Height="700"
+        MinWidth="560"
+        MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True">
+
+    <ScrollViewer Padding="20" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="14">
+
+            <TextBlock Text="DAYZ SERVER SETUP" FontSize="16" FontWeight="Bold" Foreground="{StaticResource Accent}"/>
+            <TextBlock Text="Creates the folders this app needs and, if requested, downloads the DayZ Dedicated Server via SteamCMD."
+                       Foreground="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap"/>
+
+            <Border Classes="Card">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="// DAYZ DEDICATED SERVER" Classes="SectionLabel"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="AlreadyInstalledRadio" Content="Already installed" GroupName="ServerLocation"
+                                     IsChecked="True" IsCheckedChanged="OnServerLocationModeChanged"/>
+                        <RadioButton x:Name="InstallNewRadio" Content="Install a new one here" GroupName="ServerLocation"
+                                     Margin="16,0,0,0" IsCheckedChanged="OnServerLocationModeChanged"/>
+                    </StackPanel>
+                    <DockPanel LastChildFill="True">
+                        <Button Content="BROWSE" DockPanel.Dock="Right" Margin="6,0,0,0" Click="OnBrowseServerFolder"/>
+                        <TextBox x:Name="ServerFolderTextBox" Watermark="Server folder"/>
+                    </DockPanel>
+                    <TextBlock x:Name="ServerFolderHintText" Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="Card">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="// STEAMCMD" Classes="SectionLabel"/>
+                    <DockPanel LastChildFill="True">
+                        <Button Content="BROWSE" DockPanel.Dock="Right" Margin="6,0,0,0" Click="OnBrowseSteamCmd"/>
+                        <TextBox x:Name="SteamCmdPathTextBox" Watermark="steamcmd.exe" TextChanged="OnSteamCmdPathTextChanged"/>
+                    </DockPanel>
+                    <TextBlock x:Name="SteamCmdHintText" Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="Card">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="// STEAM LOGIN" Classes="SectionLabel"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="LoginInteractiveRadio" Content="Interactive (recommended)" GroupName="SteamLogin" IsChecked="True"/>
+                        <RadioButton x:Name="LoginAnonymousRadio" Content="Anonymous (not supported for the DayZ Dedicated Server)"
+                                     GroupName="SteamLogin" Margin="16,0,0,0"/>
+                    </StackPanel>
+                    <TextBox x:Name="SteamUsernameTextBox" Watermark="Steam username"/>
+                    <TextBlock Text="A real console window will open for you to type your password/Steam Guard code directly into SteamCMD - this app never sees it."
+                               Foreground="{StaticResource Muted}" FontSize="10" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="Card">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="// PROGRESS" Classes="SectionLabel"/>
+                    <TextBlock x:Name="StatusText" Foreground="{StaticResource Muted}" FontSize="11" Text="Ready."/>
+                    <TextBox x:Name="LogTextBox" Height="160" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             Background="{StaticResource Bg2}" Foreground="{StaticResource Sub}"
+                             FontFamily="{StaticResource MonoFont}" FontSize="11"/>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="CANCEL" Click="OnCancel"/>
+                <Button x:Name="RunSetupButton" Classes="BtnGreen" Content="▶ RUN SETUP" Click="OnRunSetup"/>
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</Window>

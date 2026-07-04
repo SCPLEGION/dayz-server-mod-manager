@@ -694,6 +694,7 @@
                             <Button Content="⊕ NEW" Width="80" Margin="6,0,0,0" Click="OnAddServerProfile"/>
                             <Button Content="✎ RENAME" Width="90" Margin="6,0,0,0" Click="OnRenameServerProfile"/>
                             <Button Classes="BtnRed" Content="🗑 DELETE" Width="90" Margin="6,0,0,0" Click="OnDeleteServerProfile"/>
+                            <Button Classes="BtnGreen" Content="🧙 SETUP WIZARD" Width="150" Margin="16,0,0,0" Click="OnOpenSetupWizard"/>
                         </StackPanel>
                     </Border>
 
