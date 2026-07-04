@@ -159,6 +159,18 @@ internal static class XmlMergePresets
             Description: "Legacy spawnabletypes (older mods). Same shape as cfgspawnabletypes."
         ),
 
+        // ── messages.xml (periodic server broadcast messages) ─────────────────
+        new XmlMergePreset(
+            Id: "messages",
+            DisplayName: "messages.xml — server messages",
+            IncludePatterns: new[] { "messages.xml", "*_messages.xml", "*messages*.xml" },
+            ExcludePatterns: new string[0],
+            RootElementName: "messages",
+            KeyAttribute:   "name",
+            OutputFileName: "messages.xml",
+            Description: "Merge <message> entries (periodic server broadcasts) across mods. Dedupe by name."
+        ),
+
         // ── custom (user-configured, no implicit patterns) ────────────────────
         new XmlMergePreset(
             Id: "custom",
