@@ -36,6 +36,7 @@ public partial class MainWindow : Window
 
     private ServerProcessController? _server;
     private ServerScheduleService? _schedule;
+    private BattlEyeRconClient? _rcon;
     private ServerConfig? _lastAppliedServerConfig;
     private readonly ObservableCollection<AppConfigStore.ServerProfileEntry> _serverProfiles = new();
     private bool _suppressServerProfileSelection;
@@ -132,6 +133,7 @@ public partial class MainWindow : Window
         try { _tail?.Dispose(); } catch { }
         try { _server?.Detach(); } catch { }
         try { _schedule?.Dispose(); } catch { }
+        try { _rcon?.Dispose(); } catch { }
     }
 
     private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -1287,6 +1289,10 @@ public partial class MainWindow : Window
         ScheduledUpdateCheckCheckBox.IsChecked = cfg.ScheduledUpdateCheckEnabled;
         ScheduledUpdateIntervalTextBox.Text = cfg.ScheduledUpdateIntervalHours > 0 ? cfg.ScheduledUpdateIntervalHours.ToString() : "6";
         ApplyScheduleConfig(cfg);
+
+        RconEnabledCheckBox.IsChecked = cfg.RconEnabled;
+        RconPortTextBox.Text = (cfg.RconPort > 0 ? cfg.RconPort : 2306).ToString();
+        RconPasswordTextBox.Text = ApiKeyProtection.Unprotect(cfg.RconPasswordEncrypted ?? string.Empty);
     }
 
     private ServerConfig ReadServerConfigFromUi()
@@ -1332,7 +1338,10 @@ public partial class MainWindow : Window
             ScheduledRestartEnabled = ScheduledRestartCheckBox.IsChecked == true,
             ScheduledRestartTimeOfDay = ParseScheduleTimeOfDayOrDefault(ScheduledRestartTimeTextBox.Text),
             ScheduledUpdateCheckEnabled = ScheduledUpdateCheckCheckBox.IsChecked == true,
-            ScheduledUpdateIntervalHours = double.TryParse(ScheduledUpdateIntervalTextBox.Text.Trim(), out var hrs) && hrs > 0 ? hrs : 6
+            ScheduledUpdateIntervalHours = double.TryParse(ScheduledUpdateIntervalTextBox.Text.Trim(), out var hrs) && hrs > 0 ? hrs : 6,
+            RconEnabled = RconEnabledCheckBox.IsChecked == true,
+            RconPort = int.TryParse(RconPortTextBox.Text.Trim(), out var rp) && rp > 0 ? rp : 2306,
+            RconPasswordEncrypted = ApiKeyProtection.Protect(RconPasswordTextBox.Text ?? string.Empty)
         };
     }
 
@@ -1376,6 +1385,7 @@ public partial class MainWindow : Window
         {
             var cfg = ReadServerConfigFromUi();
             ApplyServerConfigToController(cfg);
+            SyncBattlEyeRconCfgIfEnabled(cfg);
             ServerHistoryLogger.Append("scheduled-restart", cfg.Mode.ToString());
             AppendLogLine("[manager] scheduled restart firing…");
 
@@ -1466,6 +1476,135 @@ public partial class MainWindow : Window
             System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : new TimeSpan(4, 0, 0);
         _schedule.UpdateCheckEnabled = cfg.ScheduledUpdateCheckEnabled;
         _schedule.UpdateCheckIntervalHours = cfg.ScheduledUpdateIntervalHours > 0 ? cfg.ScheduledUpdateIntervalHours : 6;
+    }
+
+    /// <summary>Keeps BEServer_x64.cfg in sync before each start/restart. Best-effort - never blocks the launch.</summary>
+    private void SyncBattlEyeRconCfgIfEnabled(ServerConfig cfg)
+    {
+        if (!cfg.RconEnabled || cfg.Mode != ServerLaunchMode.DirectExe) return;
+        if (string.IsNullOrWhiteSpace(cfg.ServerRootDir)) return;
+
+        try
+        {
+            var password = ApiKeyProtection.Unprotect(cfg.RconPasswordEncrypted);
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                AppendLogLine("[manager] RCON enabled but no password set - skipping BEServer_x64.cfg sync.");
+                return;
+            }
+            BattlEyeServerCfgWriter.EnsureConfigured(cfg.ServerRootDir!, cfg.RconPort, password);
+            AppendLogLine("[manager] BEServer_x64.cfg synced with configured RCON port/password.");
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] RCON config sync failed: {ex.Message}");
+        }
+    }
+
+    // ---- RCON (BattlEye admin console) ----
+
+    private async void OnRconConnect(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var port = int.TryParse(RconPortTextBox.Text.Trim(), out var p) && p > 0 ? p : 2306;
+            var password = RconPasswordTextBox.Text ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                RconStatusText.Text = "rcon: set a password first.";
+                return;
+            }
+
+            _rcon?.Dispose();
+            _rcon = new BattlEyeRconClient();
+            _rcon.MessageReceived += m => Dispatcher.UIThread.InvokeAsync(() => AppendRconOutput("[msg] " + m));
+            _rcon.Disconnected += () => Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                RconStatusText.Text = "rcon: disconnected";
+                RconConnectButton.IsEnabled = true;
+                RconDisconnectButton.IsEnabled = false;
+            });
+
+            RconStatusText.Text = "rcon: connecting...";
+            RconConnectButton.IsEnabled = false;
+            var ok = await _rcon.ConnectAsync("127.0.0.1", port, password);
+            RconStatusText.Text = ok ? "rcon: connected" : "rcon: login failed";
+            RconConnectButton.IsEnabled = !ok;
+            RconDisconnectButton.IsEnabled = ok;
+        }
+        catch (Exception ex)
+        {
+            RconStatusText.Text = "rcon: " + ex.Message;
+            RconConnectButton.IsEnabled = true;
+        }
+    }
+
+    private void OnRconDisconnect(object? sender, RoutedEventArgs e)
+    {
+        _rcon?.Disconnect();
+        RconStatusText.Text = "rcon: disconnected";
+        RconConnectButton.IsEnabled = true;
+        RconDisconnectButton.IsEnabled = false;
+    }
+
+    private void AppendRconOutput(string text)
+    {
+        var stamped = $"[{DateTime.Now:HH:mm:ss}] {text}\r\n" + RconOutputTextBox.Text;
+        RconOutputTextBox.Text = stamped.Length > 20000 ? stamped.Substring(0, 20000) : stamped;
+    }
+
+    private async Task RunRconCommandAsync(Func<Task<string>> action)
+    {
+        if (_rcon == null || !_rcon.IsConnected)
+        {
+            AppendRconOutput("Not connected.");
+            return;
+        }
+        try
+        {
+            var result = await action();
+            AppendRconOutput(string.IsNullOrWhiteSpace(result) ? "(no response)" : result);
+        }
+        catch (Exception ex)
+        {
+            AppendRconOutput("Error: " + ex.Message);
+        }
+    }
+
+    private async void OnRconPlayers(object? sender, RoutedEventArgs e) =>
+        await RunRconCommandAsync(() => _rcon!.GetPlayersAsync(TimeSpan.FromSeconds(8)));
+
+    private async void OnRconBans(object? sender, RoutedEventArgs e) =>
+        await RunRconCommandAsync(() => _rcon!.GetBansAsync(TimeSpan.FromSeconds(8)));
+
+    private async void OnRconBroadcast(object? sender, RoutedEventArgs e)
+    {
+        var msg = RconBroadcastTextBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(msg)) return;
+        await RunRconCommandAsync(() => _rcon!.BroadcastAsync(msg, TimeSpan.FromSeconds(8)));
+    }
+
+    private async void OnRconKick(object? sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(RconPlayerIdTextBox.Text.Trim(), out var id))
+        {
+            AppendRconOutput("Invalid player id.");
+            return;
+        }
+        var reason = RconReasonTextBox.Text?.Trim();
+        await RunRconCommandAsync(() => _rcon!.KickAsync(id, reason, TimeSpan.FromSeconds(8)));
+    }
+
+    private async void OnRconBan(object? sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(RconPlayerIdTextBox.Text.Trim(), out var id))
+        {
+            AppendRconOutput("Invalid player id.");
+            return;
+        }
+        var minutes = int.TryParse(RconBanMinutesTextBox.Text.Trim(), out var m) ? m : 0;
+        var reason = RconReasonTextBox.Text?.Trim();
+        await RunRconCommandAsync(() => _rcon!.BanAsync(id, minutes, reason, TimeSpan.FromSeconds(8)));
     }
 
     private void UpdateServerModeVisibility()
@@ -1784,6 +1923,8 @@ public partial class MainWindow : Window
         ServerActionStatusText.Text = "preparing…";
         ServerStartButton.IsEnabled = false;
 
+        SyncBattlEyeRconCfgIfEnabled(cfg);
+
         try
         {
             var deployed = new List<string>();
@@ -1856,6 +1997,7 @@ public partial class MainWindow : Window
         if (_server == null) return;
         var cfg = ReadServerConfigFromUi();
         ApplyServerConfigToController(cfg);
+        SyncBattlEyeRconCfgIfEnabled(cfg);
         try
         {
             ServerActionStatusText.Text = "restarting…";

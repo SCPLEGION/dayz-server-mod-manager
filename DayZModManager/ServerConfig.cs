@@ -148,4 +148,16 @@ public sealed class ServerConfig
 
     [JsonPropertyName("scheduledUpdateIntervalHours")]
     public double ScheduledUpdateIntervalHours { get; set; } = 6;
+
+    // ---- RCON (BattlEye BERCon admin console) ----
+
+    [JsonPropertyName("rconEnabled")]
+    public bool RconEnabled { get; set; }
+
+    [JsonPropertyName("rconPort")]
+    public int RconPort { get; set; } = 2306;
+
+    /// <summary>DPAPI-encrypted (base64) blob - decrypt with ApiKeyProtection.Unprotect.</summary>
+    [JsonPropertyName("rconPasswordEncrypted")]
+    public string RconPasswordEncrypted { get; set; } = string.Empty;
 }
