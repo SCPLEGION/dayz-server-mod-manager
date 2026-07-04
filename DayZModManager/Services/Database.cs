@@ -18,7 +18,7 @@ namespace DayZModManager.Services;
 internal static class Database
 {
     private static readonly object InitGate = new();
-    private static bool _initialized;
+    private static volatile bool _initialized;
 
     public static string DbPath => Path.Combine(AppContext.BaseDirectory, "dayzmm.db");
 

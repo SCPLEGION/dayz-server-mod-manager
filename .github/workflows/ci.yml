@@ -27,14 +27,18 @@ env:
 
 jobs:
   build:
-    name: Build & pack (Windows / ${{ matrix.runtime }})
-    runs-on: windows-latest
+    name: Build & pack (${{ matrix.runner }} / ${{ matrix.runtime }})
+    runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
       matrix:
-        runtime: [win-x64]
         configuration: [Release]
+        include:
+          - runtime: win-x64
+            runner: windows-latest
+          - runtime: linux-x64
+            runner: ubuntu-latest
 
     steps:
       - name: Checkout

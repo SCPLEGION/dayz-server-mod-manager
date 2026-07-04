@@ -17,6 +17,7 @@ internal sealed class RptLogTail : IDisposable
     private string _directory = string.Empty;
     private string[] _patterns = Array.Empty<string>();
     private bool _disposed;
+    private int _pumpRunning; // re-entrancy guard; accessed via Interlocked
 
     public event Action<string>? LineAppended;
     public event Action<string>? ActiveFileChanged;
@@ -79,15 +80,26 @@ internal sealed class RptLogTail : IDisposable
 
     private void Pump()
     {
+        // Prevent concurrent or re-entrant executions (timer can fire while Pump is still running).
+        if (Interlocked.CompareExchange(ref _pumpRunning, 1, 0) != 0)
+            return;
+
         try
         {
-            string? newest;
+            // Capture directory/patterns under the lock, then release before hitting the filesystem.
+            string directory;
+            string[] patterns;
             lock (_gate)
             {
                 if (_disposed || string.IsNullOrWhiteSpace(_directory))
                     return;
-                newest = FindNewest(_directory, _patterns);
+                directory = _directory;
+                patterns  = _patterns;
             }
+
+            string? newest;
+            try { newest = FindNewest(directory, patterns); }
+            catch { return; }
 
             if (newest == null) return;
 
@@ -120,6 +132,10 @@ internal sealed class RptLogTail : IDisposable
         catch
         {
             // Swallow - rotation, transient sharing violations, etc. We'll retry on next FSW event.
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _pumpRunning, 0);
         }
     }
 

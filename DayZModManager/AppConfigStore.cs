@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DayZModManager.Models;
 using DayZModManager.Services;
 
@@ -77,13 +78,13 @@ internal sealed class AppConfigStore
         string blob = typedJson;
         if (!string.IsNullOrEmpty(markersJson))
         {
-            var trimmed = typedJson.TrimEnd();
-            if (trimmed.EndsWith("}"))
+            try
             {
-                var head = trimmed.Substring(0, trimmed.Length - 1).TrimEnd();
-                var sep = head.EndsWith("{") ? string.Empty : ",";
-                blob = head + sep + "\"_markers\":" + markersJson + "}";
+                var node = JsonNode.Parse(typedJson)!.AsObject();
+                node["_markers"] = JsonNode.Parse(markersJson);
+                blob = node.ToJsonString(JsonOptions);
             }
+            catch { /* fall back to config-only blob on parse error */ }
         }
 
         using var upsert = conn.CreateCommand();

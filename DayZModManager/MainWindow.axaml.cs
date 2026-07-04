@@ -8,11 +8,14 @@ using System.Linq;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Threading;
-using Microsoft.Win32;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using DayZModManager.Helpers;
 using DayZModManager.Services;
 
 namespace DayZModManager;
@@ -21,17 +24,15 @@ public partial class MainWindow : Window
 {
     private const string BakedSteamWebApiKey = "A871AA9AB7D48FFD5C3A6E145EDCCC0B";
 
-    public string ModsTxtLabel => $"mods.txt: {AppPaths.ModsTxtPath}";
-
     private readonly ObservableCollection<string> _localItems = new();
     private readonly ObservableCollection<WorkshopSearchResultItem> _searchResults = new();
     private readonly ObservableCollection<string> _modsListItems = new();
     private readonly ObservableCollection<string> _modFolders = new();
+    private readonly ObservableCollection<string> _historyItems = new();
 
     private readonly Dictionary<ulong, string?> _titleCache = new();
     private readonly Dictionary<ulong, List<ulong>> _depsCache = new();
 
-    // ---- Server tab ----
     private ServerProcessController? _server;
     private RptLogTail? _tail;
     private readonly LinkedList<string> _tailBuffer = new();
@@ -44,14 +45,16 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        DataContext = this;
 
         LocalIdsListBox.ItemsSource = _localItems;
         SearchResultsListBox.ItemsSource = _searchResults;
         ModsListBox.ItemsSource = _modsListItems;
         ModFoldersListBox.ItemsSource = _modFolders;
+        HistoryListBox.ItemsSource = _historyItems;
 
         LocalIdsListBox.SelectionChanged += OnLocalIdSelected;
+
+        PropertyChanged += (_, e) => { if (e.Property == WindowStateProperty) OnWindowStateChanged(); };
 
         Loaded += (_, _) =>
         {
@@ -59,19 +62,15 @@ public partial class MainWindow : Window
             var keyToUse = string.IsNullOrWhiteSpace(envKey) ? BakedSteamWebApiKey : envKey!;
 
             LocalApiKeyTextBox.Text = keyToUse;
-
             SearchApiKeyTextBox.Text = keyToUse;
             ModsApiKeyTextBox.Text = keyToUse;
 
-            // Default mods root: parent of exe directory (parent1/parent2/exe layout).
             ModsRootTextBox.Text = AppPaths.DefaultModsRoot;
             LocalFilePathTextBox.Text = AppPaths.ModsTxtPath;
 
-            // Populate preset dropdown.
             PresetComboBox.ItemsSource = XmlMergePresets.All;
-            PresetComboBox.SelectedIndex = 0; // "types" by default
+            PresetComboBox.SelectedIndex = 0;
 
-            // Load persisted config (paths + merge mode + preset).
             var cfg = AppConfigStore.Load();
             if (!string.IsNullOrWhiteSpace(cfg.LocalModsTxtPath))
                 LocalFilePathTextBox.Text = cfg.LocalModsTxtPath!;
@@ -86,18 +85,13 @@ public partial class MainWindow : Window
                 var saved = XmlMergePresets.FindById(cfg.SelectedPresetId!);
                 if (saved != null) PresetComboBox.SelectedItem = saved;
             }
-            // First-run seed: if no saved exclusion list, populate textbox with sensible
-            // defaults (stock DayZ server subfolders that aren't mod XML sources).
             if (cfg.ExcludedXmlGenDirs is { Count: > 0 } ex)
                 XmlGenExcludeDirsTextBox.Text = string.Join(Environment.NewLine, ex);
             else if (cfg.ExcludedXmlGenDirs == null)
                 XmlGenExcludeDirsTextBox.Text = string.Join(Environment.NewLine, XmlMergePresets.DefaultExcludedDirs);
 
-            CombineAllCheckBox.Checked += (_, _) => UpdateCombineEnabled();
-            CombineAllCheckBox.Unchecked += (_, _) => UpdateCombineEnabled();
             UpdateCombineEnabled();
 
-            // ---- Server tab init ----
             PreStartPresetComboBox.ItemsSource = XmlMergePresets.All;
             PreStartPresetComboBox.SelectedIndex = 0;
 
@@ -118,21 +112,35 @@ public partial class MainWindow : Window
         };
     }
 
-    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    private void OnWindowClosing(object? sender, WindowClosingEventArgs e)
     {
-        // Persist all configured dirs/paths even if the user never hit "SAVE SERVER SETTINGS".
         try { PersistAllDirsToConfig(); } catch { }
-
-        // Detach (don't kill) the server: closing the manager window is not a stop request.
         try { _tail?.Dispose(); } catch { }
         try { _server?.Detach(); } catch { }
     }
 
-    /// <summary>
-    /// Returns the mods.txt path currently configured in the UI (LOCAL_MODS tab).
-    /// Falls back to the default path next to the exe when the textbox is empty
-    /// or hasn't been created yet (early-init / window-closing edge cases).
-    /// </summary>
+    private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            BeginMoveDrag(e);
+    }
+
+    private void OnWindowStateChanged()
+    {
+        if (MaximizeButton != null)
+            MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "▢";
+
+        if (WindowRootBorder != null)
+        {
+            WindowRootBorder.Padding = WindowState == WindowState.Maximized
+                ? new Thickness(8, 8, 8, 8)
+                : new Thickness(0);
+            WindowRootBorder.BorderThickness = WindowState == WindowState.Maximized
+                ? new Thickness(0)
+                : new Thickness(1);
+        }
+    }
+
     private string CurrentModsTxtPath()
     {
         var fromUi = LocalFilePathTextBox?.Text?.Trim();
@@ -154,10 +162,6 @@ public partial class MainWindow : Window
         AppConfigStore.Save(cfg);
     }
 
-    /// <summary>
-    /// Parse the EXCLUDE DIRS textbox: one folder name per line, blank lines and
-    /// lines starting with '#' are ignored. Returns null when empty so the JSON stays clean.
-    /// </summary>
     private List<string>? ReadExcludedXmlGenDirs()
     {
         var raw = XmlGenExcludeDirsTextBox?.Text;
@@ -177,10 +181,12 @@ public partial class MainWindow : Window
         CombineOutFileTextBox.IsEnabled = enabled;
     }
 
+    private void OnCombineAllChanged(object? sender, RoutedEventArgs e) => UpdateCombineEnabled();
+
     // ---- Topbar / UI sync ----
-    private void OnMainTabChanged(object sender, SelectionChangedEventArgs e)
+    private void OnMainTabChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!ReferenceEquals(e.OriginalSource, MainTabs)) return;
+        if (sender != MainTabs) return;
         if (TopCrumb == null || TopPathText == null) return;
 
         switch (MainTabs.SelectedIndex)
@@ -206,6 +212,10 @@ public partial class MainWindow : Window
                 TopPathText.Text = "// mods.txt history log";
                 break;
             case 5:
+                TopCrumb.Text = "AI_BALANCER";
+                TopPathText.Text = "// ai economy balancer";
+                break;
+            case 6:
                 TopCrumb.Text = "SETTINGS";
                 TopPathText.Text = "// app configuration";
                 break;
@@ -214,16 +224,15 @@ public partial class MainWindow : Window
 
     private void UpdateTopStats(int total, int installed)
     {
-        if (TopMods != null)      TopMods.Text      = total.ToString();
-        if (TopInstalled != null) TopInstalled.Text = installed.ToString();
+        if (TopMods != null)        TopMods.Text        = total.ToString();
+        if (TopInstalled != null)   TopInstalled.Text   = installed.ToString();
         if (LocalCountPill != null) LocalCountPill.Text = total.ToString();
     }
 
     private static string ExtractIdToken(string line)
     {
         if (string.IsNullOrWhiteSpace(line)) return string.Empty;
-        var token = line.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
-        return token;
+        return line.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
     }
 
     private void OnLocalIdSelected(object? sender, SelectionChangedEventArgs e)
@@ -256,19 +265,34 @@ public partial class MainWindow : Window
         if (DetailInstalledText != null) DetailInstalledText.Text = installed ? "yes" : "no";
     }
 
+    // ---- Window chrome buttons ----
+    private void OnMinimizeClick(object? sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void OnMaximizeRestoreClick(object? sender, RoutedEventArgs e)
+        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    private void OnCloseClick(object? sender, RoutedEventArgs e) => Close();
+
     // ---- Local mods tab ----
-    private void OnBrowseLocalFile(object sender, RoutedEventArgs e)
+    private async void OnBrowseLocalFile(object? sender, RoutedEventArgs e)
     {
-        var ofd = new OpenFileDialog { Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*" };
-        if (ofd.ShowDialog() == true)
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            LocalFilePathTextBox.Text = ofd.FileName;
-            try { PersistAllDirsToConfig(); } catch { }
-            _ = RefreshLocalAsync();
-        }
+            Title = "Select mods.txt",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Text files") { Patterns = new[] { "*.txt" } },
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } }
+            }
+        });
+        if (files.Count == 0) return;
+        LocalFilePathTextBox.Text = files[0].Path.LocalPath;
+        try { PersistAllDirsToConfig(); } catch { }
+        _ = RefreshLocalAsync();
     }
 
-    private async void OnRefreshLocal(object sender, RoutedEventArgs e) => await RefreshLocalAsync();
+    private async void OnRefreshLocal(object? sender, RoutedEventArgs e) => await RefreshLocalAsync();
 
     private async Task RefreshLocalAsync()
     {
@@ -314,7 +338,7 @@ public partial class MainWindow : Window
             var apiKey = LocalApiKeyTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
 
-            var throttler = new System.Threading.SemaphoreSlim(6);
+            var throttler = new SemaphoreSlim(6);
             var tasks = ids.Select(async id =>
             {
                 await throttler.WaitAsync();
@@ -326,10 +350,7 @@ public partial class MainWindow : Window
                     if (!string.IsNullOrWhiteSpace(title)) _titleCache[id] = title;
                     return (id, title);
                 }
-                catch
-                {
-                    return (id, (string?)null);
-                }
+                catch { return (id, (string?)null); }
                 finally { throttler.Release(); }
             }).ToArray();
 
@@ -360,7 +381,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnRemoveSelected(object sender, RoutedEventArgs e)
+    private async void OnRemoveSelected(object? sender, RoutedEventArgs e)
     {
         try
         {
@@ -379,14 +400,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var confirm = System.Windows.MessageBox.Show(
-                $"Remove {id} from mods.txt?",
-                "Preview mods.txt change",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Warning
-            ) == MessageBoxResult.OK;
-
-            if (!confirm) return;
+            if (!await MsgBox.Confirm(this, $"Remove {id} from mods.txt?", "Preview mods.txt change")) return;
 
             var removed = ModStorage.RemoveId(modsPath, id);
             LocalStatusTextBlock.Text = removed ? $"Removed {id}." : $"ID {id} not found.";
@@ -400,11 +414,8 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---- Add tab ----
-    private async void OnSearchWorkshop(object sender, RoutedEventArgs e)
-    {
-        await SearchWorkshopAsync();
-    }
+    // ---- Search Workshop tab ----
+    private async void OnSearchWorkshop(object? sender, RoutedEventArgs e) => await SearchWorkshopAsync();
 
     private async Task SearchWorkshopAsync()
     {
@@ -423,7 +434,6 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException("Enter search text.");
 
             var results = await SteamWorkshopClient.QueryFilesAsync(apiKey, searchText, appid, creatorAppid, 20);
-
             var list = results.AsEnumerable();
 
             if (HideInModsCheckBox.IsChecked == true)
@@ -437,12 +447,11 @@ public partial class MainWindow : Window
                 1 => list.OrderBy(r => r.Title ?? string.Empty, StringComparer.OrdinalIgnoreCase),
                 2 => list.OrderByDescending(r => r.Title ?? string.Empty, StringComparer.OrdinalIgnoreCase),
                 3 => list.OrderBy(r => r.PublishedFileId),
-                _ => list // relevance (as returned)
+                _ => list
             };
 
             var final = list.ToArray();
-            foreach (var r in final)
-                _searchResults.Add(r);
+            foreach (var r in final) _searchResults.Add(r);
             AddStatusTextBlock.Text = $"Found {final.Length} results.";
         }
         catch (Exception ex)
@@ -453,7 +462,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnAddSelected(object sender, RoutedEventArgs e)
+    private async void OnAddSelected(object? sender, RoutedEventArgs e)
     {
         try
         {
@@ -483,14 +492,7 @@ public partial class MainWindow : Window
             }
 
             var preview = BuildModsTxtAddPreview(toAdd, apiKey);
-            var ok = System.Windows.MessageBox.Show(
-                preview,
-                "Preview mods.txt changes",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Information
-            ) == MessageBoxResult.OK;
-
-            if (!ok) return;
+            if (!await MsgBox.Confirm(this, preview, "Preview mods.txt changes")) return;
 
             existing.UnionWith(toAdd);
             ModStorage.SaveIdsFromSet(modsTxtPath, existing);
@@ -509,7 +511,6 @@ public partial class MainWindow : Window
 
     private string BuildModsTxtAddPreview(IEnumerable<ulong> toAdd, string apiKey)
     {
-        // Only show IDs (fast); names are looked up separately when refreshing UI.
         var arr = toAdd.ToArray();
         var head = arr.Take(30).Select(x => x.ToString());
         var more = arr.Length > 30 ? $" +{arr.Length - 30} more" : string.Empty;
@@ -520,14 +521,13 @@ public partial class MainWindow : Window
             $"\n\nSource: {srcLabel}";
     }
 
-    // ---- Bulk add ----
-    private async void OnAddBulk(object sender, RoutedEventArgs e)
+    private async void OnAddBulk(object? sender, RoutedEventArgs e)
     {
         try
         {
             var text = BulkIdsTextBox.Text ?? string.Empty;
             var rawLines = text
-                .Split(new[] { '\r', '\n' }, System.StringSplitOptions.RemoveEmptyEntries)
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim())
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .ToArray();
@@ -542,33 +542,18 @@ public partial class MainWindow : Window
             var invalid = new List<string>();
             foreach (var line in rawLines)
             {
-                try
-                {
-                    root.Add(ModStorage.ParseWorkshopId(line));
-                }
-                catch
-                {
-                    invalid.Add(line);
-                }
+                try { root.Add(ModStorage.ParseWorkshopId(line)); }
+                catch { invalid.Add(line); }
             }
 
             if (invalid.Count > 0)
             {
                 AddStatusTextBlock.Text = $"Invalid lines: {invalid.Count} (showing first 5).";
-                System.Windows.MessageBox.Show(
-                    "Invalid ID lines:\n" + string.Join(Environment.NewLine, invalid.Take(5)),
-                    "Bulk add - invalid IDs",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning
-                );
+                await MsgBox.Info(this, "Invalid ID lines:\n" + string.Join(Environment.NewLine, invalid.Take(5)), "Bulk add - invalid IDs");
                 return;
             }
 
-            if (root.Count == 0)
-            {
-                AddStatusTextBlock.Text = "No valid IDs.";
-                return;
-            }
+            if (root.Count == 0) { AddStatusTextBlock.Text = "No valid IDs."; return; }
 
             var apiKey = SearchApiKeyTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
@@ -584,21 +569,10 @@ public partial class MainWindow : Window
             var existing = ModStorage.LoadIds(modsTxtPath);
             var toAdd = closure.Where(x => !existing.Contains(x)).ToArray();
 
-            if (toAdd.Length == 0)
-            {
-                AddStatusTextBlock.Text = "Nothing to add (already in mods.txt).";
-                return;
-            }
+            if (toAdd.Length == 0) { AddStatusTextBlock.Text = "Nothing to add (already in mods.txt)."; return; }
 
             var preview = BuildModsTxtAddPreview(toAdd, apiKey);
-            var ok = System.Windows.MessageBox.Show(
-                preview,
-                "Preview mods.txt changes",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Information
-            ) == MessageBoxResult.OK;
-
-            if (!ok) return;
+            if (!await MsgBox.Confirm(this, preview, "Preview mods.txt changes")) return;
 
             existing.UnionWith(toAdd);
             ModStorage.SaveIdsFromSet(modsTxtPath, existing);
@@ -619,20 +593,13 @@ public partial class MainWindow : Window
     {
         var visited = new HashSet<ulong>(rootIds);
         var queue = new Queue<ulong>(rootIds);
-
-        const int maxNodes = 500;
-        const int batchSize = 8;
+        const int maxNodes = 500, batchSize = 8;
 
         while (queue.Count > 0)
         {
             if (visited.Count > maxNodes) break;
-
             var batch = new List<ulong>(batchSize);
-            while (queue.Count > 0 && batch.Count < batchSize)
-            {
-                var id = queue.Dequeue();
-                batch.Add(id);
-            }
+            while (queue.Count > 0 && batch.Count < batchSize) batch.Add(queue.Dequeue());
 
             var tasks = batch.Select(async id =>
             {
@@ -647,30 +614,23 @@ public partial class MainWindow : Window
                 foreach (var child in children)
                     if (visited.Add(child)) queue.Enqueue(child);
         }
-
         return visited;
     }
 
-    // ---- Dependency tree ----
-    private async void OnShowDependencyTree(object sender, RoutedEventArgs e)
+    private async void OnShowDependencyTree(object? sender, RoutedEventArgs e)
     {
         try
         {
             var item = SearchResultsListBox.SelectedItem as WorkshopSearchResultItem;
             if (item == null || item.PublishedFileId == 0) return;
-
             var apiKey = SearchApiKeyTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
-
             AddStatusTextBlock.Text = "Building dependency tree...";
             var tree = await BuildDependencyTreeTextAsync(item.PublishedFileId, apiKey, maxDepth: 8, maxNodes: 250);
-            System.Windows.MessageBox.Show(tree, $"Dependency tree: {item.PublishedFileId}", MessageBoxButton.OK, MessageBoxImage.Information);
+            await MsgBox.Info(this, tree, $"Dependency tree: {item.PublishedFileId}");
             AddStatusTextBlock.Text = "Tree shown.";
         }
-        catch (Exception ex)
-        {
-            AddStatusTextBlock.Text = ex.Message;
-        }
+        catch (Exception ex) { AddStatusTextBlock.Text = ex.Message; }
     }
 
     private async Task<string> BuildDependencyTreeTextAsync(ulong root, string apiKey, int maxDepth, int maxNodes)
@@ -681,8 +641,7 @@ public partial class MainWindow : Window
 
         async Task<List<ulong>> GetChildrenCachedAsync(ulong id)
         {
-            if (_depsCache.TryGetValue(id, out var cached))
-                return cached;
+            if (_depsCache.TryGetValue(id, out var cached)) return cached;
             var children = await SteamWorkshopClient.GetChildrenPublishedFileIdsAsync(id, apiKey);
             _depsCache[id] = children;
             return children;
@@ -693,33 +652,14 @@ public partial class MainWindow : Window
             if (nodeCount >= maxNodes) return;
             if (!visited.Add(id)) return;
             nodeCount++;
-
-            var label = id.ToString();
-            if (depth == 0)
-                lines.Add($"{label}");
-            else
-                lines.Add($"{prefix}{label}");
-
+            lines.Add(depth == 0 ? id.ToString() : $"{prefix}{id}");
             if (depth >= maxDepth) return;
-
             List<ulong> children;
-            try
-            {
-                children = await GetChildrenCachedAsync(id);
-            }
-            catch
-            {
-                return;
-            }
-
+            try { children = await GetChildrenCachedAsync(id); }
+            catch { return; }
             var list = children ?? new List<ulong>();
             for (var i = 0; i < list.Count; i++)
-            {
-                var child = list[i];
-                var isLast = i == list.Count - 1;
-                var nextPrefix = depth == 0 ? (isLast ? "└─ " : "├─ ") : (isLast ? "└─ " : "├─ ");
-                await WalkAsync(child, depth + 1, nextPrefix);
-            }
+                await WalkAsync(list[i], depth + 1, i == list.Count - 1 ? "└─ " : "├─ ");
         }
 
         await WalkAsync(root, 0, "");
@@ -727,7 +667,7 @@ public partial class MainWindow : Window
     }
 
     // ---- mods.txt list ----
-    private async void OnRefreshModsList(object sender, RoutedEventArgs e) => await RefreshModsListAsync();
+    private async void OnRefreshModsList(object? sender, RoutedEventArgs e) => await RefreshModsListAsync();
 
     private async Task RefreshModsListAsync()
     {
@@ -735,13 +675,8 @@ public partial class MainWindow : Window
         {
             ModsStatusTextBlock.Text = "Loading...";
             _modsListItems.Clear();
-
             var ids = ModStorage.LoadIds(CurrentModsTxtPath()).OrderBy(x => x).ToArray();
-            if (ids.Length == 0)
-            {
-                _modsListItems.Add("(mods.txt empty)");
-                return;
-            }
+            if (ids.Length == 0) { _modsListItems.Add("(mods.txt empty)"); return; }
 
             var doLookup = ModsLookupCheckBox.IsChecked == true;
             if (!doLookup)
@@ -754,7 +689,7 @@ public partial class MainWindow : Window
             var apiKey = ModsApiKeyTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
 
-            var throttler = new System.Threading.SemaphoreSlim(6);
+            var throttler = new SemaphoreSlim(6);
             var tasks = ids.Select(async id =>
             {
                 await throttler.WaitAsync();
@@ -766,10 +701,7 @@ public partial class MainWindow : Window
                     if (!string.IsNullOrWhiteSpace(title)) _titleCache[id] = title;
                     return (id, title);
                 }
-                catch
-                {
-                    return (id, (string?)null);
-                }
+                catch { return (id, (string?)null); }
                 finally { throttler.Release(); }
             }).ToArray();
 
@@ -779,31 +711,26 @@ public partial class MainWindow : Window
 
             ModsStatusTextBlock.Text = $"Loaded {ids.Length} mods.";
         }
-        catch (Exception ex)
-        {
-            ModsStatusTextBlock.Text = ex.Message;
-        }
+        catch (Exception ex) { ModsStatusTextBlock.Text = ex.Message; }
     }
 
     // ---- Mods Folders tab ----
-    private void OnBrowseModsRoot(object sender, RoutedEventArgs e)
+    private async void OnBrowseModsRoot(object? sender, RoutedEventArgs e)
     {
-        // WPF has no built-in FolderBrowserDialog; we use OpenFileDialog as a pragmatic fallback:
-        // select any file inside the mods root, then we take its directory as the root.
-        var ofd = new OpenFileDialog
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Filter = "Any file (*.*)|*.*",
-            Title = "Select any file inside the mods root directory"
-        };
-        if (ofd.ShowDialog() == true)
-        {
-            ModsRootTextBox.Text = System.IO.Path.GetDirectoryName(ofd.FileName) ?? ofd.FileName;
-            try { PersistAllDirsToConfig(); } catch { }
-            _ = RefreshModFoldersAsync();
-        }
+            Title = "Select mods root directory",
+            AllowMultiple = false
+        });
+        if (folders.Count == 0) return;
+        ModsRootTextBox.Text = folders[0].Path.LocalPath;
+        try { PersistAllDirsToConfig(); } catch { }
+        _ = RefreshModFoldersAsync();
     }
 
-    private async void OnRefreshModFolders(object sender, RoutedEventArgs e) => await RefreshModFoldersAsync();
+    private async void OnRefreshModFolders(object? sender, RoutedEventArgs e) => await RefreshModFoldersAsync();
 
     private async Task RefreshModFoldersAsync()
     {
@@ -826,7 +753,7 @@ public partial class MainWindow : Window
         if (_modFolders.Count > 0) await RefreshFolderDetailsAsync(_modFolders[0]);
     }
 
-    private async void OnModFolderSelected(object sender, SelectionChangedEventArgs e)
+    private async void OnModFolderSelected(object? sender, SelectionChangedEventArgs e)
     {
         if (ModFoldersListBox.SelectedItem == null) return;
         await RefreshFolderDetailsAsync(ModFoldersListBox.SelectedItem.ToString()!);
@@ -835,8 +762,7 @@ public partial class MainWindow : Window
     private Task RefreshFolderDetailsAsync(string selected)
     {
         var root = ModsRootTextBox.Text.Trim();
-        var modDir = System.IO.Path.Combine(root, selected);
-
+        var modDir = Path.Combine(root, selected);
         var sb = new StringBuilder();
         sb.AppendLine($"Mod folder: {selected}");
         sb.AppendLine($"Path: {modDir}");
@@ -848,47 +774,35 @@ public partial class MainWindow : Window
             return Task.CompletedTask;
         }
 
-        const int maxTypesFilesToShow = 200;
-        const int maxOtherXmlToShow = 80;
+        const int maxTypesFilesToShow = 200, maxOtherXmlToShow = 80;
 
         var typesFiles = Directory.EnumerateFiles(modDir, "*types*.xml", SearchOption.AllDirectories)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
-            .Take(maxTypesFilesToShow)
-            .ToArray();
+            .Take(maxTypesFilesToShow).ToArray();
 
         sb.AppendLine();
         sb.AppendLine($"types.xml-related files (showing up to {maxTypesFilesToShow}):");
         if (typesFiles.Length == 0) sb.AppendLine("(none found under this folder)");
-        else
-            foreach (var f in typesFiles)
-            {
-                var fi = new FileInfo(f);
-                sb.AppendLine($"- {fi.Name} ({fi.Length / 1024.0:0.0} KB)");
-            }
+        else foreach (var f in typesFiles) { var fi = new FileInfo(f); sb.AppendLine($"- {fi.Name} ({fi.Length / 1024.0:0.0} KB)"); }
 
         var otherXmlFiles = Directory.EnumerateFiles(modDir, "*.xml", SearchOption.AllDirectories)
-            .Select(Path.GetFileName)
-            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(Path.GetFileName).Where(n => !string.IsNullOrWhiteSpace(n))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-            .Take(maxOtherXmlToShow)
-            .ToArray()!;
+            .Take(maxOtherXmlToShow).ToArray()!;
 
         sb.AppendLine();
         sb.AppendLine($"Other XML files (sample, up to {maxOtherXmlToShow}):");
         if (otherXmlFiles.Length == 0) sb.AppendLine("(none found under this folder)");
-        else
-            foreach (var n in otherXmlFiles)
-                sb.AppendLine($"- {n}");
+        else foreach (var n in otherXmlFiles) sb.AppendLine($"- {n}");
 
         FolderDetailsTextBox.Text = sb.ToString();
         return Task.CompletedTask;
     }
 
-    private void OnPresetSelected(object sender, SelectionChangedEventArgs e)
+    private void OnPresetSelected(object? sender, SelectionChangedEventArgs e)
     {
         if (PresetComboBox.SelectedItem is not XmlMergePreset preset) return;
-
         IncludePatternsTextBox.Text = string.Join(", ", preset.IncludePatterns);
         ExcludePatternsTextBox.Text = string.Join(", ", preset.ExcludePatterns);
         RootElementTextBox.Text = preset.RootElementName;
@@ -897,28 +811,19 @@ public partial class MainWindow : Window
         PresetDescriptionText.Text = preset.Description;
     }
 
-    /// <summary>Build a preset from the currently-edited UI fields, falling back to defaults.</summary>
     private XmlMergePreset BuildPresetFromUi()
     {
-        var basePreset = PresetComboBox.SelectedItem as XmlMergePreset
-                         ?? XmlMergePresets.FindById("types")!;
+        var basePreset = PresetComboBox.SelectedItem as XmlMergePreset ?? XmlMergePresets.FindById("types")!;
 
         static string[] SplitList(string? raw) =>
-            string.IsNullOrWhiteSpace(raw)
-                ? Array.Empty<string>()
-                : raw.Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                     .Select(s => s.Trim())
-                     .Where(s => s.Length > 0)
-                     .ToArray();
+            string.IsNullOrWhiteSpace(raw) ? Array.Empty<string>()
+            : raw.Split(new[] { ',', ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                 .Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
 
         var includes = SplitList(IncludePatternsTextBox.Text);
         var excludes = SplitList(ExcludePatternsTextBox.Text);
-        var rootName = string.IsNullOrWhiteSpace(RootElementTextBox.Text)
-            ? basePreset.RootElementName
-            : RootElementTextBox.Text.Trim();
-        var keyAttr  = string.IsNullOrWhiteSpace(KeyAttributeTextBox.Text)
-            ? null
-            : KeyAttributeTextBox.Text.Trim();
+        var rootName = string.IsNullOrWhiteSpace(RootElementTextBox.Text) ? basePreset.RootElementName : RootElementTextBox.Text.Trim();
+        var keyAttr  = string.IsNullOrWhiteSpace(KeyAttributeTextBox.Text) ? null : KeyAttributeTextBox.Text.Trim();
 
         return basePreset with
         {
@@ -929,7 +834,7 @@ public partial class MainWindow : Window
         };
     }
 
-    private async void OnGenerateCombinedTypes(object sender, RoutedEventArgs e)
+    private async void OnGenerateCombinedTypes(object? sender, RoutedEventArgs e)
     {
         try
         {
@@ -939,13 +844,8 @@ public partial class MainWindow : Window
                 FolderDetailsTextBox.Text = "Invalid mods root directory.";
                 return;
             }
-
             var outVal = CombineOutFileTextBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(outVal))
-            {
-                FolderDetailsTextBox.Text = "Please set output file path.";
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(outVal)) { FolderDetailsTextBox.Text = "Please set output file path."; return; }
 
             var outFile   = AppPaths.ResolveOutputPath(outVal);
             var mergeMode = GetSelectedMergeMode();
@@ -953,8 +853,7 @@ public partial class MainWindow : Window
 
             FolderDetailsTextBox.Text = $"Combining {preset.DisplayName}...";
             var excluded = ReadExcludedXmlGenDirs();
-            var stats = await Task.Run(() =>
-                XmlMergeService.Generate(root, preset, mergeMode, outFile, excluded));
+            var stats = await Task.Run(() => XmlMergeService.Generate(root, preset, mergeMode, outFile, excluded));
 
             var sb = new StringBuilder();
             sb.AppendLine($"Generated: {outFile}");
@@ -962,13 +861,10 @@ public partial class MainWindow : Window
             sb.AppendLine(FormatStats(stats));
             FolderDetailsTextBox.Text = sb.ToString();
         }
-        catch (Exception ex)
-        {
-            FolderDetailsTextBox.Text = $"Generation failed: {ex.Message}";
-        }
+        catch (Exception ex) { FolderDetailsTextBox.Text = $"Generation failed: {ex.Message}"; }
     }
 
-    private void OnPreviewCombinedTypes(object sender, RoutedEventArgs e) => _ = PreviewCombinedTypesAsync();
+    private void OnPreviewCombinedTypes(object? sender, RoutedEventArgs e) => _ = PreviewCombinedTypesAsync();
 
     private async Task PreviewCombinedTypesAsync()
     {
@@ -980,19 +876,14 @@ public partial class MainWindow : Window
                 FolderDetailsTextBox.Text = "Invalid mods root directory.";
                 return;
             }
-
             var mergeMode = GetSelectedMergeMode();
             var preset    = BuildPresetFromUi();
-
             FolderDetailsTextBox.Text = $"Previewing {preset.DisplayName} (dry-run)...";
             var excluded = ReadExcludedXmlGenDirs();
             var stats = await Task.Run(() => XmlMergeService.Preview(root, preset, mergeMode, excluded));
             FolderDetailsTextBox.Text = "Dry-run preview:\r\n\r\n" + FormatStats(stats);
         }
-        catch (Exception ex)
-        {
-            FolderDetailsTextBox.Text = $"Preview failed: {ex.Message}";
-        }
+        catch (Exception ex) { FolderDetailsTextBox.Text = $"Preview failed: {ex.Message}"; }
     }
 
     private static string FormatStats(XmlMergeStats stats)
@@ -1005,39 +896,30 @@ public partial class MainWindow : Window
         sb.AppendLine($"Merged children written: {stats.MergedChildren}");
         sb.AppendLine($"Unique keys: {stats.UniqueKeys}");
         sb.AppendLine($"Conflicts detected: {stats.ConflictCount}");
-
         if (stats.SkippedInvalidFiles.Count > 0)
         {
             sb.AppendLine();
             sb.AppendLine($"Skipped (invalid XML): {stats.SkippedInvalidFiles.Count}");
-            foreach (var f in stats.SkippedInvalidFiles.Take(10))
-                sb.AppendLine($"  - {f}");
+            foreach (var f in stats.SkippedInvalidFiles.Take(10)) sb.AppendLine($"  - {f}");
         }
-
         if (stats.ConflictCount > 0 && stats.Conflicts.Count > 0)
         {
             sb.AppendLine();
             sb.AppendLine("First conflicts:");
-            foreach (var c in stats.Conflicts.Take(25))
-                sb.AppendLine($"  - {c.Key}");
+            foreach (var c in stats.Conflicts.Take(25)) sb.AppendLine($"  - {c.Key}");
         }
-
         return sb.ToString();
     }
 
-    private TypesXmlMergeMode GetSelectedMergeMode()
+    private TypesXmlMergeMode GetSelectedMergeMode() => MergeModeComboBox.SelectedIndex switch
     {
-        // Keep mapping in sync with XAML SelectedIndex in MainWindow.xaml.
-        return MergeModeComboBox.SelectedIndex switch
-        {
-            0 => TypesXmlMergeMode.DedupeFirstByKey,
-            1 => TypesXmlMergeMode.Append,
-            2 => TypesXmlMergeMode.DedupeLastByKey,
-            _ => TypesXmlMergeMode.DedupeFirstByKey
-        };
-    }
+        0 => TypesXmlMergeMode.DedupeFirstByKey,
+        1 => TypesXmlMergeMode.Append,
+        2 => TypesXmlMergeMode.DedupeLastByKey,
+        _ => TypesXmlMergeMode.DedupeFirstByKey
+    };
 
-    private void OnSaveSettings(object sender, RoutedEventArgs e)
+    private async void OnSaveSettings(object? sender, RoutedEventArgs e)
     {
         var cfg = new AppConfigStore.Config
         {
@@ -1049,34 +931,28 @@ public partial class MainWindow : Window
             ExcludedXmlGenDirs = ReadExcludedXmlGenDirs(),
             Server = ReadServerConfigFromUi()
         };
-
         AppConfigStore.Save(cfg);
         ApplyServerConfigToController(cfg.Server);
-        System.Windows.MessageBox.Show("Settings saved to config.json.", "Saved", MessageBoxButton.OK, MessageBoxImage.Information);
+        await MsgBox.Info(this, "Settings saved.", "Saved");
     }
 
-    private async void OnExportProfile(object sender, RoutedEventArgs e)
+    private async void OnExportProfile(object? sender, RoutedEventArgs e)
     {
         try
         {
             var name = (ProfileNameTextBox.Text ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(name))
-                name = "default";
+            if (string.IsNullOrWhiteSpace(name)) name = "default";
 
-            var profilesDir = Path.Combine(AppContext.BaseDirectory, "profiles");
-            Directory.CreateDirectory(profilesDir);
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
 
-            var defaultPath = Path.Combine(profilesDir, $"{name}.json");
-
-            var sfd = new SaveFileDialog
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                Filter = "Profile json (*.json)|*.json",
-                FileName = $"{name}.json",
-                InitialDirectory = profilesDir
-            };
-
-            if (sfd.ShowDialog() != true)
-                return;
+                Title = "Export profile",
+                SuggestedFileName = $"{name}.json",
+                FileTypeChoices = new[] { new FilePickerFileType("Profile json") { Patterns = new[] { "*.json" } } }
+            });
+            if (file == null) return;
 
             var profile = new AppProfile
             {
@@ -1093,44 +969,40 @@ public partial class MainWindow : Window
             };
 
             var json = JsonSerializer.Serialize(profile, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
-            File.WriteAllText(sfd.FileName, json, Encoding.UTF8);
-            System.Windows.MessageBox.Show("Profile exported.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+            File.WriteAllText(file.Path.LocalPath, json, Encoding.UTF8);
+            await MsgBox.Info(this, "Profile exported.", "Export");
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show(ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            await Task.CompletedTask;
+            await MsgBox.Info(this, ex.Message, "Export failed");
         }
     }
 
-    private async void OnImportProfile(object sender, RoutedEventArgs e)
+    private async void OnImportProfile(object? sender, RoutedEventArgs e)
     {
         try
         {
-            var ofd = new OpenFileDialog
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
-                Filter = "Profile json (*.json)|*.json"
-            };
+                Title = "Import profile",
+                AllowMultiple = false,
+                FileTypeFilter = new[] { new FilePickerFileType("Profile json") { Patterns = new[] { "*.json" } } }
+            });
+            if (files.Count == 0) return;
 
-            if (ofd.ShowDialog() != true)
-                return;
-
-            var json = File.ReadAllText(ofd.FileName);
+            var json = File.ReadAllText(files[0].Path.LocalPath);
             var profile = JsonSerializer.Deserialize<AppProfile>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            if (profile == null)
-                throw new InvalidOperationException("Invalid profile json.");
+            if (profile == null) throw new InvalidOperationException("Invalid profile json.");
 
             ProfileNameTextBox.Text = profile.Name;
             ModsRootTextBox.Text = profile.ModsRootPath ?? ModsRootTextBox.Text;
             CombineOutFileTextBox.Text = profile.CombineOutFile ?? CombineOutFileTextBox.Text;
             AutoAddDepsCheckBox.IsChecked = profile.AutoAddDeps;
-
             SearchApiKeyTextBox.Text = profile.SearchApiKey ?? SearchApiKeyTextBox.Text;
             LocalApiKeyTextBox.Text = profile.LocalModsApiKey ?? LocalApiKeyTextBox.Text;
-
             MergeModeComboBox.SelectedIndex = profile.MergeMode switch
             {
                 TypesXmlMergeMode.DedupeFirstByKey => 0,
@@ -1154,82 +1026,47 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show(ex.Message, "Import failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            await MsgBox.Info(this, ex.Message, "Import failed");
         }
     }
 
-    private void OnRefreshHistory(object sender, RoutedEventArgs e) => _ = RefreshHistoryAsync();
-
-    private void OnMinimizeClick(object sender, RoutedEventArgs e)
-        => WindowState = WindowState.Minimized;
-
-    private void OnMaximizeRestoreClick(object sender, RoutedEventArgs e)
-        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-
-    private void OnCloseClick(object sender, RoutedEventArgs e) => Close();
-
-    private void OnWindowStateChanged(object? sender, EventArgs e)
-    {
-        if (MaximizeButton != null)
-            MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "▢";
-
-        // When maximized with WindowStyle=None, WPF over-extends past the work area.
-        // Pad the inner border so content isn't clipped by taskbar / screen edges.
-        if (WindowRootBorder != null)
-        {
-            WindowRootBorder.Padding = WindowState == WindowState.Maximized
-                ? new Thickness(8, 8, 8, 8)
-                : new Thickness(0);
-            WindowRootBorder.BorderThickness = WindowState == WindowState.Maximized
-                ? new Thickness(0)
-                : new Thickness(1);
-        }
-    }
+    private void OnRefreshHistory(object? sender, RoutedEventArgs e) => _ = RefreshHistoryAsync();
 
     private Task RefreshHistoryAsync()
     {
         try
         {
             var entries = HistoryLogger.LoadRecent(30);
-            HistoryListBox.Items.Clear();
-
+            _historyItems.Clear();
             foreach (var e in entries)
             {
                 var added = e.Added.Count > 0 ? string.Join(",", e.Added.Take(5)) + (e.Added.Count > 5 ? "…" : "") : "[]";
                 var removed = e.Removed.Count > 0 ? string.Join(",", e.Removed.Take(5)) + (e.Removed.Count > 5 ? "…" : "") : "[]";
-                HistoryListBox.Items.Add($"[{e.Timestamp:u}] {e.Action} (add:{added} rem:{removed}) - {e.Source}");
+                _historyItems.Add($"[{e.Timestamp:u}] {e.Action} (add:{added} rem:{removed}) - {e.Source}");
             }
-
-            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
-            HistoryListBox.Items.Clear();
-            HistoryListBox.Items.Add(ex.Message);
-            return Task.CompletedTask;
+            _historyItems.Clear();
+            _historyItems.Add(ex.Message);
         }
+        return Task.CompletedTask;
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // SERVER TAB — controller wiring, log tail, SteamCMD update flow
+    // SERVER TAB
     // ═══════════════════════════════════════════════════════════════════
 
     private void HydrateServerUiFromConfig(ServerConfig? cfg)
     {
         cfg ??= new ServerConfig();
-
         if (cfg.Mode == ServerLaunchMode.Ps1) ModePs1Radio.IsChecked = true;
         else ModeDirectRadio.IsChecked = true;
 
         ServerPs1PathTextBox.Text = cfg.Ps1Path ?? string.Empty;
         Ps1LaunchParamComboBox.SelectedIndex = string.Equals(cfg.Ps1LaunchParam, "user", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
         Ps1AppBranchComboBox.SelectedIndex = string.Equals(cfg.Ps1AppBranch, "exp", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
-        Ps1UpdateTargetComboBox.SelectedIndex = cfg.Ps1UpdateTarget?.ToLowerInvariant() switch
-        {
-            "server" => 0,
-            "mod"    => 1,
-            _        => 2, // "all"
-        };
+        Ps1UpdateTargetComboBox.SelectedIndex = cfg.Ps1UpdateTarget?.ToLowerInvariant() switch { "server" => 0, "mod" => 1, _ => 2 };
         ServerExePathTextBox.Text = cfg.ExePath ?? string.Empty;
         ServerProfileDirTextBox.Text = cfg.ProfileDir ?? AppPaths.DefaultServerProfileDir;
         ServerRootDirTextBox.Text = cfg.ServerRootDir
@@ -1237,11 +1074,7 @@ public partial class MainWindow : Window
         ServerPortTextBox.Text = (cfg.Port ?? 2302).ToString();
         ServerExtraArgsTextBox.Text = cfg.ExtraArgs ?? string.Empty;
         ServerBattlEyeCheckBox.IsChecked = cfg.BattlEye;
-
         SteamCmdPathTextBox.Text = cfg.SteamCmdPath ?? string.Empty;
-        // Workshop content lives next to steamcmd.exe — surface the derived path so users see
-        // exactly where mods are downloaded. `ModCacheDir` from the profile is shown only as
-        // a fallback for back-compat; runtime always uses the SteamCMD-derived root.
         ModCacheDirTextBox.Text = !string.IsNullOrWhiteSpace(cfg.SteamCmdPath)
             ? (Path.GetDirectoryName(Path.GetFullPath(cfg.SteamCmdPath)) ?? string.Empty)
             : (cfg.ModCacheDir ?? AppPaths.DefaultModCacheDir);
@@ -1252,18 +1085,15 @@ public partial class MainWindow : Window
         DeployModeComboBox.SelectedIndex = (int)cfg.DeployMode;
         ValidateModsCheckBox.IsChecked = cfg.ValidateMods;
         AutoUpdateBeforeStartCheckBox.IsChecked = cfg.AutoUpdateModsBeforeStart;
-
         AutoRestartCheckBox.IsChecked = cfg.AutoRestartOnCrash;
         AutoRestartBackoffTextBox.Text = cfg.AutoRestartBackoffSeconds.ToString();
         AutoRestartMaxRetriesTextBox.Text = cfg.AutoRestartMaxRetries.ToString();
-
         PreStartMergeCheckBox.IsChecked = cfg.RunPreStartMerge;
         if (!string.IsNullOrWhiteSpace(cfg.PreStartPresetId))
         {
             var preset = XmlMergePresets.FindById(cfg.PreStartPresetId!);
             if (preset != null) PreStartPresetComboBox.SelectedItem = preset;
         }
-
         _tailLineCap = cfg.TailLineCap > 0 ? cfg.TailLineCap : 2000;
     }
 
@@ -1271,7 +1101,6 @@ public partial class MainWindow : Window
     {
         var mode = (ModePs1Radio.IsChecked == true) ? ServerLaunchMode.Ps1 : ServerLaunchMode.DirectExe;
         var loginMode = (LoginAnonymousRadio.IsChecked == true) ? SteamLoginMode.Anonymous : SteamLoginMode.Interactive;
-
         int? port = int.TryParse(ServerPortTextBox.Text.Trim(), out var p) ? p : (int?)null;
         uint appId = uint.TryParse(WorkshopAppIdTextBox.Text.Trim(), out var a) ? a : 221100u;
         int backoff = int.TryParse(AutoRestartBackoffTextBox.Text.Trim(), out var b) ? b : 10;
@@ -1281,21 +1110,15 @@ public partial class MainWindow : Window
         {
             Mode = mode,
             Ps1Path = NullIfEmpty(ServerPs1PathTextBox.Text),
-            Ps1LaunchParam = (Ps1LaunchParamComboBox.SelectedIndex == 1) ? "user" : "default",
-            Ps1AppBranch   = (Ps1AppBranchComboBox.SelectedIndex == 1) ? "exp" : "stable",
-            Ps1UpdateTarget = Ps1UpdateTargetComboBox.SelectedIndex switch
-            {
-                0 => "server",
-                1 => "mod",
-                _ => "all",
-            },
+            Ps1LaunchParam = Ps1LaunchParamComboBox.SelectedIndex == 1 ? "user" : "default",
+            Ps1AppBranch   = Ps1AppBranchComboBox.SelectedIndex == 1 ? "exp" : "stable",
+            Ps1UpdateTarget = Ps1UpdateTargetComboBox.SelectedIndex switch { 0 => "server", 1 => "mod", _ => "all" },
             ExePath = NullIfEmpty(ServerExePathTextBox.Text),
             ProfileDir = NullIfEmpty(ServerProfileDirTextBox.Text),
             ServerRootDir = NullIfEmpty(ServerRootDirTextBox.Text),
             Port = port,
             ExtraArgs = NullIfEmpty(ServerExtraArgsTextBox.Text),
             BattlEye = ServerBattlEyeCheckBox.IsChecked == true,
-
             SteamCmdPath = NullIfEmpty(SteamCmdPathTextBox.Text),
             ModCacheDir = NullIfEmpty(ModCacheDirTextBox.Text),
             LoginMode = loginMode,
@@ -1304,11 +1127,9 @@ public partial class MainWindow : Window
             DeployMode = (ModDeployMode)Math.Max(0, DeployModeComboBox.SelectedIndex),
             ValidateMods = ValidateModsCheckBox.IsChecked == true,
             AutoUpdateModsBeforeStart = AutoUpdateBeforeStartCheckBox.IsChecked == true,
-
             AutoRestartOnCrash = AutoRestartCheckBox.IsChecked == true,
             AutoRestartBackoffSeconds = backoff,
             AutoRestartMaxRetries = maxRetries,
-
             RunPreStartMerge = PreStartMergeCheckBox.IsChecked == true,
             PreStartPresetId = (PreStartPresetComboBox.SelectedItem as XmlMergePreset)?.Id,
             TailLineCap = _tailLineCap
@@ -1320,7 +1141,7 @@ public partial class MainWindow : Window
     private void InitServerController()
     {
         _server = new ServerProcessController();
-        _server.StateChanged += s => Dispatcher.InvokeAsync(() =>
+        _server.StateChanged += s => Dispatcher.UIThread.InvokeAsync(() =>
         {
             UpdateServerButtonsForState(s);
             UpdateServerStatusPill(s);
@@ -1328,12 +1149,9 @@ public partial class MainWindow : Window
             else _uptimeTimer?.Stop();
             RefreshUptimeText();
         });
-
-        _server.Exited += (code, crashed) => Dispatcher.InvokeAsync(() =>
+        _server.Exited += (code, crashed) => Dispatcher.UIThread.InvokeAsync(() =>
         {
-            ServerActionStatusText.Text = crashed
-                ? $"crashed (exit {code})"
-                : $"exited (exit {code})";
+            ServerActionStatusText.Text = crashed ? $"crashed (exit {code})" : $"exited (exit {code})";
         });
     }
 
@@ -1347,24 +1165,17 @@ public partial class MainWindow : Window
 
     private void UpdateServerModeVisibility()
     {
-        // Called from RadioButton.Checked which can fire during XAML parsing
-        // before sibling named elements have been created. Bail out until ready.
         if (ModePs1Radio == null || ModePs1Panel == null || ModeDirectPanel == null
-            || ServerUpdateModsButton == null || ServerReauthButton == null)
-            return;
+            || ServerUpdateModsButton == null || ServerReauthButton == null) return;
 
         var isPs1 = ModePs1Radio.IsChecked == true;
-        ModePs1Panel.Visibility = isPs1 ? Visibility.Visible : Visibility.Collapsed;
-        ModeDirectPanel.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
-        // UPDATE MODS is wired for both modes:
-        //   - Ps1: invokes servermanager.ps1 -u <target> -app <branch>
-        //   - DirectExe: drives SteamCMD download + deploy
-        ServerUpdateModsButton.Visibility = Visibility.Visible;
-        // Re-auth is SteamCMD-only.
-        ServerReauthButton.Visibility = isPs1 ? Visibility.Collapsed : Visibility.Visible;
+        ModePs1Panel.IsVisible = isPs1;
+        ModeDirectPanel.IsVisible = !isPs1;
+        ServerUpdateModsButton.IsVisible = true;
+        ServerReauthButton.IsVisible = !isPs1;
     }
 
-    private void OnServerModeChanged(object sender, RoutedEventArgs e) => UpdateServerModeVisibility();
+    private void OnServerModeChanged(object? sender, RoutedEventArgs e) => UpdateServerModeVisibility();
 
     private void UpdateServerButtonsForState(ServerState s)
     {
@@ -1385,8 +1196,8 @@ public partial class MainWindow : Window
             ServerState.Crashed  => ("#EF4444", "#EF4444"),
             _                    => ("#52525B", "#52525B"),
         };
-        ServerStatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dot));
-        ServerStateText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(text));
+        ServerStatusDot.Fill = new SolidColorBrush(Color.Parse(dot));
+        ServerStateText.Foreground = new SolidColorBrush(Color.Parse(text));
         ServerPidText.Text = _server?.Pid is int pid ? $"pid {pid}" : "";
     }
 
@@ -1407,86 +1218,111 @@ public partial class MainWindow : Window
 
     // ---- File pickers ----
 
-    private void OnServerBrowsePs1(object sender, RoutedEventArgs e)
+    private async void OnServerBrowsePs1(object? sender, RoutedEventArgs e)
     {
-        var ofd = new OpenFileDialog { Filter = "PowerShell scripts (*.ps1)|*.ps1|All files (*.*)|*.*" };
-        if (ofd.ShowDialog() == true)
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            ServerPs1PathTextBox.Text = ofd.FileName;
-            try { PersistAllDirsToConfig(); } catch { }
-        }
+            Title = "Select servermanager.ps1",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("PowerShell scripts") { Patterns = new[] { "*.ps1" } },
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } }
+            }
+        });
+        if (files.Count == 0) return;
+        ServerPs1PathTextBox.Text = files[0].Path.LocalPath;
+        try { PersistAllDirsToConfig(); } catch { }
     }
 
-    private void OnServerBrowseExe(object sender, RoutedEventArgs e)
+    private async void OnServerBrowseExe(object? sender, RoutedEventArgs e)
     {
-        var ofd = new OpenFileDialog { Filter = "DayZ server exe (*.exe)|*.exe|All files (*.*)|*.*" };
-        if (ofd.ShowDialog() == true)
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            ServerExePathTextBox.Text = ofd.FileName;
-            if (string.IsNullOrWhiteSpace(ServerRootDirTextBox.Text))
-                ServerRootDirTextBox.Text = Path.GetDirectoryName(ofd.FileName) ?? string.Empty;
-            try { PersistAllDirsToConfig(); } catch { }
-        }
+            Title = "Select DayZServer_x64.exe",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Executables") { Patterns = new[] { "*.exe", "*" } },
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } }
+            }
+        });
+        if (files.Count == 0) return;
+        ServerExePathTextBox.Text = files[0].Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(ServerRootDirTextBox.Text))
+            ServerRootDirTextBox.Text = Path.GetDirectoryName(files[0].Path.LocalPath) ?? string.Empty;
+        try { PersistAllDirsToConfig(); } catch { }
     }
 
-    private void OnServerBrowseProfile(object sender, RoutedEventArgs e)
+    private async void OnServerBrowseProfile(object? sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFolderDialog();
-        if (dlg.ShowDialog() == true)
-        {
-            ServerProfileDirTextBox.Text = dlg.FolderName;
-            try { PersistAllDirsToConfig(); } catch { }
-        }
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { AllowMultiple = false, Title = "Select server profile dir" });
+        if (folders.Count == 0) return;
+        ServerProfileDirTextBox.Text = folders[0].Path.LocalPath;
+        try { PersistAllDirsToConfig(); } catch { }
     }
 
-    private void OnServerBrowseRoot(object sender, RoutedEventArgs e)
+    private async void OnServerBrowseRoot(object? sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFolderDialog();
-        if (dlg.ShowDialog() == true)
-        {
-            ServerRootDirTextBox.Text = dlg.FolderName;
-            try { PersistAllDirsToConfig(); } catch { }
-        }
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { AllowMultiple = false, Title = "Select server root dir" });
+        if (folders.Count == 0) return;
+        ServerRootDirTextBox.Text = folders[0].Path.LocalPath;
+        try { PersistAllDirsToConfig(); } catch { }
     }
 
-    private void OnServerBrowseSteamCmd(object sender, RoutedEventArgs e)
+    private async void OnServerBrowseSteamCmd(object? sender, RoutedEventArgs e)
     {
-        var ofd = new OpenFileDialog { Filter = "steamcmd.exe|steamcmd.exe|All files (*.*)|*.*" };
-        if (ofd.ShowDialog() == true)
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            SteamCmdPathTextBox.Text = ofd.FileName;
-            // Mirror SteamCMD root into the cache textbox — runtime uses this derived path.
-            try { ModCacheDirTextBox.Text = Path.GetDirectoryName(Path.GetFullPath(ofd.FileName)) ?? string.Empty; } catch { }
-            try { PersistAllDirsToConfig(); } catch { }
-        }
+            Title = "Select steamcmd.exe",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("steamcmd") { Patterns = new[] { "steamcmd.exe", "steamcmd" } },
+                new FilePickerFileType("All files") { Patterns = new[] { "*" } }
+            }
+        });
+        if (files.Count == 0) return;
+        SteamCmdPathTextBox.Text = files[0].Path.LocalPath;
+        try { ModCacheDirTextBox.Text = Path.GetDirectoryName(Path.GetFullPath(files[0].Path.LocalPath)) ?? string.Empty; } catch { }
+        try { PersistAllDirsToConfig(); } catch { }
     }
 
-    private void OnServerBrowseModCache(object sender, RoutedEventArgs e)
+    private async void OnServerBrowseModCache(object? sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFolderDialog();
-        if (dlg.ShowDialog() == true)
-        {
-            ModCacheDirTextBox.Text = dlg.FolderName;
-            try { PersistAllDirsToConfig(); } catch { }
-        }
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { AllowMultiple = false, Title = "Select mod cache dir" });
+        if (folders.Count == 0) return;
+        ModCacheDirTextBox.Text = folders[0].Path.LocalPath;
+        try { PersistAllDirsToConfig(); } catch { }
     }
 
     // ---- Log routing ----
 
-    private void OnLogSourceChanged(object sender, SelectionChangedEventArgs e)
+    private void OnLogSourceChanged(object? sender, SelectionChangedEventArgs e)
     {
-        // Ignore the spurious fire from XAML init before Loaded runs.
         if (_server == null) return;
         _activeLogSource = LogSourceComboBox.SelectedIndex == 1 ? LogSource.SteamCmd : LogSource.Rpt;
-        ServerLogTextBox.Clear();
+        ServerLogTextBox.Text = string.Empty;
         _tailBuffer.Clear();
         if (_activeLogSource == LogSource.Rpt) StartRptTail();
         else _tail?.Stop();
     }
 
-    private void OnClearLog(object sender, RoutedEventArgs e)
+    private void OnClearLog(object? sender, RoutedEventArgs e)
     {
-        ServerLogTextBox.Clear();
+        ServerLogTextBox.Text = string.Empty;
         _tailBuffer.Clear();
     }
 
@@ -1494,11 +1330,10 @@ public partial class MainWindow : Window
     {
         try { _tail?.Dispose(); } catch { }
         _tail = new RptLogTail();
-        _tail.LineAppended += line => Dispatcher.InvokeAsync(() => AppendLogLine(line));
-        _tail.ActiveFileChanged += path => Dispatcher.InvokeAsync(() => ActiveLogFileText.Text = path);
+        _tail.LineAppended += line => Dispatcher.UIThread.InvokeAsync(() => AppendLogLine(line));
+        _tail.ActiveFileChanged += path => Dispatcher.UIThread.InvokeAsync(() => ActiveLogFileText.Text = path);
 
-        var dir = NullIfEmpty(ServerProfileDirTextBox.Text)
-                  ?? AppPaths.DefaultRptDir;
+        var dir = NullIfEmpty(ServerProfileDirTextBox.Text) ?? AppPaths.DefaultRptDir;
         if (!Directory.Exists(dir))
         {
             ActiveLogFileText.Text = $"(directory not found: {dir})";
@@ -1512,24 +1347,21 @@ public partial class MainWindow : Window
         _tailBuffer.AddLast(line);
         while (_tailBuffer.Count > _tailLineCap) _tailBuffer.RemoveFirst();
 
-        ServerLogTextBox.AppendText(line + Environment.NewLine);
-        // Trim front of textbox if it grows huge
-        if (ServerLogTextBox.LineCount > _tailLineCap + 200)
-        {
+        ServerLogTextBox.Text += line + Environment.NewLine;
+        if ((ServerLogTextBox.Text?.Split('\n').Length ?? 0) > _tailLineCap + 200)
             ServerLogTextBox.Text = string.Join(Environment.NewLine, _tailBuffer);
-        }
+
         if (PauseAutoscrollCheckBox.IsChecked != true)
-            ServerLogTextBox.ScrollToEnd();
+            ServerLogTextBox.CaretIndex = ServerLogTextBox.Text?.Length ?? 0;
     }
 
     // ---- Start / Stop / Restart ----
 
-    private async void OnServerStart(object sender, RoutedEventArgs e)
+    private async void OnServerStart(object? sender, RoutedEventArgs e)
     {
         if (_server == null) return;
         var cfg = ReadServerConfigFromUi();
         ApplyServerConfigToController(cfg);
-
         ServerActionStatusText.Text = "preparing…";
         ServerStartButton.IsEnabled = false;
 
@@ -1539,7 +1371,6 @@ public partial class MainWindow : Window
             var deployedServer = new List<string>();
             if (cfg.Mode == ServerLaunchMode.DirectExe)
             {
-                // Auto-update + deploy if requested.
                 if (cfg.AutoUpdateModsBeforeStart)
                 {
                     var ok = await RunSteamCmdUpdateAsync(cfg);
@@ -1550,7 +1381,6 @@ public partial class MainWindow : Window
                         return;
                     }
                 }
-
                 (deployed, deployedServer) = DeployMods(cfg);
             }
 
@@ -1568,25 +1398,15 @@ public partial class MainWindow : Window
             }
 
             var spec = new ServerLaunchSpec(
-                Mode: cfg.Mode,
-                Ps1Path: cfg.Ps1Path,
-                ExePath: cfg.ExePath,
-                ProfileDir: cfg.ProfileDir,
-                ServerRootDir: cfg.ServerRootDir,
-                Port: cfg.Port,
-                ExtraArgs: cfg.ExtraArgs,
-                BattlEye: cfg.BattlEye,
-                DeployedAtNames: deployed,
-                Ps1LaunchParam: cfg.Ps1LaunchParam,
-                Ps1AppBranch: cfg.Ps1AppBranch,
-                DeployedServerModNames: deployedServer
-            );
+                Mode: cfg.Mode, Ps1Path: cfg.Ps1Path, ExePath: cfg.ExePath,
+                ProfileDir: cfg.ProfileDir, ServerRootDir: cfg.ServerRootDir,
+                Port: cfg.Port, ExtraArgs: cfg.ExtraArgs, BattlEye: cfg.BattlEye,
+                DeployedAtNames: deployed, Ps1LaunchParam: cfg.Ps1LaunchParam,
+                Ps1AppBranch: cfg.Ps1AppBranch, DeployedServerModNames: deployedServer);
 
             ServerActionStatusText.Text = "starting…";
             await _server.StartAsync(spec);
             ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "start failed";
-
-            // Switch log to RPT once server is running.
             LogSourceComboBox.SelectedIndex = 0;
             StartRptTail();
         }
@@ -1595,13 +1415,10 @@ public partial class MainWindow : Window
             ServerActionStatusText.Text = ex.Message;
             ServerHistoryLogger.Append("start-failed", cfg.Mode.ToString(), detail: ex.Message);
         }
-        finally
-        {
-            UpdateServerButtonsForState(_server.State);
-        }
+        finally { UpdateServerButtonsForState(_server.State); }
     }
 
-    private async void OnServerStop(object sender, RoutedEventArgs e)
+    private async void OnServerStop(object? sender, RoutedEventArgs e)
     {
         if (_server == null) return;
         ServerActionStatusText.Text = "stopping…";
@@ -1611,48 +1428,33 @@ public partial class MainWindow : Window
             await _server.StopAsync(TimeSpan.FromSeconds(5));
             ServerActionStatusText.Text = "stopped";
         }
-        catch (Exception ex)
-        {
-            ServerActionStatusText.Text = ex.Message;
-        }
-        finally
-        {
-            UpdateServerButtonsForState(_server.State);
-        }
+        catch (Exception ex) { ServerActionStatusText.Text = ex.Message; }
+        finally { UpdateServerButtonsForState(_server.State); }
     }
 
-    private async void OnServerRestart(object sender, RoutedEventArgs e)
+    private async void OnServerRestart(object? sender, RoutedEventArgs e)
     {
         if (_server == null) return;
         var cfg = ReadServerConfigFromUi();
         ApplyServerConfigToController(cfg);
-
         try
         {
             ServerActionStatusText.Text = "restarting…";
             var (deployed, deployedServer) = cfg.Mode == ServerLaunchMode.DirectExe
-                ? DeployMods(cfg)
-                : (new List<string>(), new List<string>());
-            var spec = new ServerLaunchSpec(
-                cfg.Mode, cfg.Ps1Path, cfg.ExePath, cfg.ProfileDir, cfg.ServerRootDir,
-                cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed,
+                ? DeployMods(cfg) : (new List<string>(), new List<string>());
+            var spec = new ServerLaunchSpec(cfg.Mode, cfg.Ps1Path, cfg.ExePath, cfg.ProfileDir,
+                cfg.ServerRootDir, cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed,
                 cfg.Ps1LaunchParam, cfg.Ps1AppBranch, deployedServer);
             await _server.RestartAsync(spec);
             ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
         }
-        catch (Exception ex)
-        {
-            ServerActionStatusText.Text = ex.Message;
-        }
-        finally
-        {
-            UpdateServerButtonsForState(_server.State);
-        }
+        catch (Exception ex) { ServerActionStatusText.Text = ex.Message; }
+        finally { UpdateServerButtonsForState(_server.State); }
     }
 
     // ---- SteamCMD update ----
 
-    private async void OnUpdateModsClicked(object sender, RoutedEventArgs e)
+    private async void OnUpdateModsClicked(object? sender, RoutedEventArgs e)
     {
         var cfg = ReadServerConfigFromUi();
         ServerActionStatusText.Text = "updating…";
@@ -1668,49 +1470,33 @@ public partial class MainWindow : Window
             else
             {
                 ok = await RunSteamCmdUpdateAsync(cfg);
-                if (ok)
-                {
-                    DeployMods(cfg);
-                    ServerActionStatusText.Text = "mods updated";
-                }
-                else
-                {
-                    ServerActionStatusText.Text = "update failed";
-                }
+                if (ok) { DeployMods(cfg); ServerActionStatusText.Text = "mods updated"; }
+                else ServerActionStatusText.Text = "update failed";
             }
         }
-        catch (Exception ex)
-        {
-            ServerActionStatusText.Text = ex.Message;
-        }
-        finally
-        {
-            UpdateServerButtonsForState(_server?.State ?? ServerState.Stopped);
-        }
+        catch (Exception ex) { ServerActionStatusText.Text = ex.Message; }
+        finally { UpdateServerButtonsForState(_server?.State ?? ServerState.Stopped); }
     }
 
     private async Task<bool> RunPs1UpdateAsync(ServerConfig cfg)
     {
         if (string.IsNullOrWhiteSpace(cfg.Ps1Path) || !File.Exists(cfg.Ps1Path))
         {
-            ServerHistoryLogger.Append("ps1-update-failed", cfg.Mode.ToString(),
-                detail: "servermanager.ps1 path not set or missing");
+            ServerHistoryLogger.Append("ps1-update-failed", cfg.Mode.ToString(), detail: "servermanager.ps1 path not set or missing");
             return false;
         }
 
         var target = string.IsNullOrWhiteSpace(cfg.Ps1UpdateTarget) ? "all" : cfg.Ps1UpdateTarget;
         var app    = string.IsNullOrWhiteSpace(cfg.Ps1AppBranch)    ? "stable" : cfg.Ps1AppBranch;
 
-        // Surface ps1 stdout in the manager log pane.
         LogSourceComboBox.SelectedIndex = 1;
         _activeLogSource = LogSource.SteamCmd;
         _tail?.Stop();
         ActiveLogFileText.Text = "servermanager.ps1";
-        ServerLogTextBox.Clear();
+        ServerLogTextBox.Text = string.Empty;
         _tailBuffer.Clear();
 
-        ServerHistoryLogger.Append("ps1-update-start", cfg.Mode.ToString(),
-            detail: $"target={target} app={app}");
+        ServerHistoryLogger.Append("ps1-update-start", cfg.Mode.ToString(), detail: $"target={target} app={app}");
 
         var pwsh = ResolvePowerShellExe();
         var psi = new ProcessStartInfo
@@ -1734,12 +1520,10 @@ public partial class MainWindow : Window
                 ServerHistoryLogger.Append("ps1-update-failed", cfg.Mode.ToString(), detail: "Process.Start returned null");
                 return false;
             }
-
-            proc.OutputDataReceived += (_, ev) => { if (ev.Data != null) Dispatcher.InvokeAsync(() => AppendLogLine(ev.Data)); };
-            proc.ErrorDataReceived  += (_, ev) => { if (ev.Data != null) Dispatcher.InvokeAsync(() => AppendLogLine("[err] " + ev.Data)); };
+            proc.OutputDataReceived += (_, ev) => { if (ev.Data != null) Dispatcher.UIThread.InvokeAsync(() => AppendLogLine(ev.Data)); };
+            proc.ErrorDataReceived  += (_, ev) => { if (ev.Data != null) Dispatcher.UIThread.InvokeAsync(() => AppendLogLine("[err] " + ev.Data)); };
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
-
             await proc.WaitForExitAsync().ConfigureAwait(false);
             exitCode = proc.ExitCode;
         }
@@ -1751,19 +1535,18 @@ public partial class MainWindow : Window
         }
 
         var ok = exitCode == 0;
-        ServerHistoryLogger.Append(ok ? "ps1-update-done" : "ps1-update-failed",
-            cfg.Mode.ToString(), exitCode: exitCode);
+        ServerHistoryLogger.Append(ok ? "ps1-update-done" : "ps1-update-failed", cfg.Mode.ToString(), exitCode: exitCode);
         return ok;
     }
 
     private static string ResolvePowerShellExe()
     {
-        // Prefer PowerShell 7 if present, fall back to Windows PowerShell.
-        foreach (var candidate in new[] { "pwsh.exe", "powershell.exe" })
+        var whereCmd = OperatingSystem.IsWindows() ? "where" : "which";
+        foreach (var candidate in new[] { "pwsh", "pwsh.exe", "powershell.exe" })
         {
             try
             {
-                using var p = Process.Start(new ProcessStartInfo("where", candidate)
+                using var p = Process.Start(new ProcessStartInfo(whereCmd, candidate)
                 {
                     RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
                 });
@@ -1771,8 +1554,7 @@ public partial class MainWindow : Window
                 {
                     var line = p.StandardOutput.ReadLine();
                     p.WaitForExit();
-                    if (!string.IsNullOrWhiteSpace(line) && File.Exists(line.Trim()))
-                        return line.Trim();
+                    if (!string.IsNullOrWhiteSpace(line) && File.Exists(line.Trim())) return line.Trim();
                 }
             }
             catch { }
@@ -1780,7 +1562,7 @@ public partial class MainWindow : Window
         return "powershell.exe";
     }
 
-    private void OnReauthClicked(object sender, RoutedEventArgs e)
+    private void OnReauthClicked(object? sender, RoutedEventArgs e)
     {
         _forceReauth = true;
         ServerActionStatusText.Text = "next update will open SteamCMD console for re-auth";
@@ -1790,49 +1572,30 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath) || !File.Exists(cfg.SteamCmdPath))
         {
-            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(),
-                detail: "steamcmd.exe path not set or missing");
+            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: "steamcmd.exe path not set or missing");
             return false;
         }
 
-        // Unified storage: SteamCMD downloads into its own dir (`<steamcmdRoot>/steamapps/workshop/...`).
-        // The legacy `ModCacheDir` setting is ignored at runtime; profiles keep it for back-compat only.
         string cacheDir;
         try { cacheDir = SteamCmdInstallRoot(cfg); }
-        catch (Exception ex)
-        {
-            AppendLogLine($"[manager] {ex.Message}");
-            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: ex.Message);
-            return false;
-        }
+        catch (Exception ex) { AppendLogLine($"[manager] {ex.Message}"); ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: ex.Message); return false; }
         Directory.CreateDirectory(cacheDir);
 
         var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
-        if (ids.Count == 0)
-        {
-            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: "mods.txt empty");
-            return false;
-        }
+        if (ids.Count == 0) { ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: "mods.txt empty"); return false; }
 
         var client = new SteamCmdClient(cfg.SteamCmdPath);
-        ServerHistoryLogger.Append("steamcmd-update-start", cfg.Mode.ToString(),
-            detail: $"ids={ids.Count} validate={cfg.ValidateMods}");
+        ServerHistoryLogger.Append("steamcmd-update-start", cfg.Mode.ToString(), detail: $"ids={ids.Count} validate={cfg.ValidateMods}");
 
-        // Switch log view so the user sees what's happening.
         LogSourceComboBox.SelectedIndex = 1;
         _activeLogSource = LogSource.SteamCmd;
         _tail?.Stop();
         ActiveLogFileText.Text = "SteamCMD";
-        ServerLogTextBox.Clear();
+        ServerLogTextBox.Text = string.Empty;
         _tailBuffer.Clear();
 
-        var login = cfg.LoginMode == SteamLoginMode.Anonymous
-            ? "anonymous"
-            : (cfg.SteamLogin ?? "anonymous");
-
-        var useInteractive =
-            cfg.LoginMode == SteamLoginMode.Interactive &&
-            (_forceReauth || !client.HasCachedCredential(login));
+        var login = cfg.LoginMode == SteamLoginMode.Anonymous ? "anonymous" : (cfg.SteamLogin ?? "anonymous");
+        var useInteractive = cfg.LoginMode == SteamLoginMode.Interactive && (_forceReauth || !client.HasCachedCredential(login));
 
         int exitCode;
         try
@@ -1841,117 +1604,67 @@ public partial class MainWindow : Window
             {
                 AppendLogLine("[manager] SteamCMD opened in its own console window — enter password there.");
                 AppendLogLine("[manager] (this window will stay quiet until SteamCMD exits)");
-                exitCode = await client.DownloadModsInteractiveAsync(
-                    ids, cfg.WorkshopAppId, cacheDir, login, cfg.ValidateMods);
+                exitCode = await client.DownloadModsInteractiveAsync(ids, cfg.WorkshopAppId, cacheDir, login, cfg.ValidateMods);
                 _forceReauth = false;
             }
             else
             {
                 exitCode = 0;
-                await foreach (var line in client.DownloadModsStreamedAsync(
-                                   ids, cfg.WorkshopAppId, cacheDir, login, cfg.ValidateMods))
+                await foreach (var line in client.DownloadModsStreamedAsync(ids, cfg.WorkshopAppId, cacheDir, login, cfg.ValidateMods))
                 {
                     if (line.StartsWith("__EXIT__:"))
                     {
-                        if (int.TryParse(line.AsSpan("__EXIT__:".Length), out var ec))
-                            exitCode = ec;
+                        if (int.TryParse(line.AsSpan("__EXIT__:".Length), out var ec)) exitCode = ec;
                         break;
                     }
                     AppendLogLine(line);
-
-                    // Auto-detect login failure → switch to interactive on next attempt.
                     if (line.IndexOf("Login Failure", StringComparison.OrdinalIgnoreCase) >= 0
                         || line.IndexOf("Invalid Password", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
                         _forceReauth = true;
-                    }
                 }
             }
         }
-        catch (Exception ex)
-        {
-            AppendLogLine($"[manager] error: {ex.Message}");
-            ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: ex.Message);
-            return false;
-        }
+        catch (Exception ex) { AppendLogLine($"[manager] error: {ex.Message}"); ServerHistoryLogger.Append("steamcmd-update-failed", cfg.Mode.ToString(), detail: ex.Message); return false; }
 
         var ok = exitCode == 0;
-        ServerHistoryLogger.Append(
-            ok ? "steamcmd-update-done" : "steamcmd-update-failed",
-            cfg.Mode.ToString(),
-            exitCode: exitCode);
+        ServerHistoryLogger.Append(ok ? "steamcmd-update-done" : "steamcmd-update-failed", cfg.Mode.ToString(), exitCode: exitCode);
         return ok;
     }
 
     private (List<string> ClientMods, List<string> ServerMods) DeployMods(ServerConfig cfg)
     {
         var empty = (new List<string>(), new List<string>());
-        if (string.IsNullOrWhiteSpace(cfg.ServerRootDir))
-        {
-            AppendLogLine("[manager] server root dir not set — skipping deploy.");
-            return empty;
-        }
-        if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath))
-        {
-            AppendLogLine("[manager] steamcmd.exe path not set — skipping deploy.");
-            return empty;
-        }
+        if (string.IsNullOrWhiteSpace(cfg.ServerRootDir)) { AppendLogLine("[manager] server root dir not set — skipping deploy."); return empty; }
+        if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath)) { AppendLogLine("[manager] steamcmd.exe path not set — skipping deploy."); return empty; }
 
         string workshopRoot;
         try { workshopRoot = SteamCmdInstallRoot(cfg); }
-        catch (Exception ex)
-        {
-            AppendLogLine($"[manager] {ex.Message}");
-            return empty;
-        }
+        catch (Exception ex) { AppendLogLine($"[manager] {ex.Message}"); return empty; }
 
         var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
         var names = new List<string>();
         try
         {
-            var result = SteamCmdClient.DeployMods(
-                workshopRoot,
-                cfg.WorkshopAppId,
-                ids,
-                cfg.ServerRootDir!,
-                cfg.DeployMode);
-
+            var result = SteamCmdClient.DeployMods(workshopRoot, cfg.WorkshopAppId, ids, cfg.ServerRootDir!, cfg.DeployMode);
             names = result.Select(r => r.AtName).ToList();
-            ServerHistoryLogger.Append("mods-deployed", cfg.Mode.ToString(),
-                detail: $"count={names.Count} mode={cfg.DeployMode}");
+            ServerHistoryLogger.Append("mods-deployed", cfg.Mode.ToString(), detail: $"count={names.Count} mode={cfg.DeployMode}");
             AppendLogLine($"[manager] deployed {names.Count} mods to {cfg.ServerRootDir}");
         }
-        catch (Exception ex)
-        {
-            AppendLogLine($"[manager] deploy failed: {ex.Message}");
-            ServerHistoryLogger.Append("mods-deploy-failed", cfg.Mode.ToString(), detail: ex.Message);
-            return empty;
-        }
+        catch (Exception ex) { AppendLogLine($"[manager] deploy failed: {ex.Message}"); ServerHistoryLogger.Append("mods-deploy-failed", cfg.Mode.ToString(), detail: ex.Message); return empty; }
 
         var serverMods = new List<string>();
         if (cfg.AutoDeployManagerMod)
         {
             var atName = DeployManagerMod(cfg);
-            if (!string.IsNullOrEmpty(atName))
-                serverMods.Add(atName!);
+            if (!string.IsNullOrEmpty(atName)) serverMods.Add(atName!);
         }
-
         return (names, serverMods);
     }
 
-    /// <summary>
-    /// Stages the manager companion mod (e.g. <c>@DayZAIBalancer</c>) into <c>cfg.ServerRootDir</c>
-    /// using the same deploy mode as workshop mods, and returns its <c>@</c>-name. Returns null
-    /// if the source folder cannot be found or deploy fails.
-    /// </summary>
     private string? DeployManagerMod(ServerConfig cfg)
     {
         var source = ResolveManagerModSource(cfg);
-        if (source == null)
-        {
-            AppendLogLine("[manager] manager mod source not found — skipping companion deploy.");
-            return null;
-        }
+        if (source == null) { AppendLogLine("[manager] manager mod source not found — skipping companion deploy."); return null; }
 
         var atName = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         if (string.IsNullOrEmpty(atName)) return null;
@@ -1960,7 +1673,6 @@ public partial class MainWindow : Window
         var target = Path.Combine(cfg.ServerRootDir!, atName);
         try
         {
-            // Always refresh: remove existing entry (junction or copy) so updates flow through.
             if (Directory.Exists(target))
             {
                 var info = new DirectoryInfo(target);
@@ -1974,32 +1686,23 @@ public partial class MainWindow : Window
             {
                 case ModDeployMode.Junction:
                     var psi = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{target}\" \"{source}\"")
-                    {
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                    };
+                    { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
                     using (var proc = Process.Start(psi))
                     {
                         if (proc == null) throw new IOException("mklink launch failed");
                         proc.WaitForExit();
-                        if (proc.ExitCode != 0)
-                            throw new IOException($"mklink /J failed: {proc.StandardError.ReadToEnd()}");
+                        if (proc.ExitCode != 0) throw new IOException($"mklink /J failed: {proc.StandardError.ReadToEnd()}");
                     }
                     break;
                 case ModDeployMode.Symlink:
                     Directory.CreateSymbolicLink(target, source);
                     break;
-                case ModDeployMode.Copy:
                 default:
                     CopyDirectoryRecursive(source, target);
                     break;
             }
-
             AppendLogLine($"[manager] staged companion mod {atName} ({cfg.DeployMode}) <- {source}");
-            ServerHistoryLogger.Append("manager-mod-deployed", cfg.Mode.ToString(),
-                detail: $"name={atName} mode={cfg.DeployMode}");
+            ServerHistoryLogger.Append("manager-mod-deployed", cfg.Mode.ToString(), detail: $"name={atName} mode={cfg.DeployMode}");
             return atName;
         }
         catch (Exception ex)
@@ -2010,18 +1713,11 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Resolves the SteamCMD install directory (parent of <c>steamcmd.exe</c>). Workshop content
-    /// lands at <c>&lt;root&gt;/steamapps/workshop/content/&lt;appId&gt;/&lt;id&gt;</c>; this is the
-    /// single source of truth for downloads — server-root deploys are copies/links of those folders.
-    /// </summary>
     private static string SteamCmdInstallRoot(ServerConfig cfg)
     {
-        if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath))
-            throw new InvalidOperationException("SteamCMD path is not set.");
+        if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath)) throw new InvalidOperationException("SteamCMD path is not set.");
         var dir = Path.GetDirectoryName(Path.GetFullPath(cfg.SteamCmdPath));
-        if (string.IsNullOrWhiteSpace(dir))
-            throw new InvalidOperationException("Cannot resolve SteamCMD directory from path.");
+        if (string.IsNullOrWhiteSpace(dir)) throw new InvalidOperationException("Cannot resolve SteamCMD directory from path.");
         return dir;
     }
 
@@ -2036,8 +1732,7 @@ public partial class MainWindow : Window
             Path.GetFullPath(Path.Combine(AppPaths.ExeDir, "..", "artifacts", "pbo", "@DayZAIBalancer")),
             Path.GetFullPath(Path.Combine(AppPaths.ExeDir, "..", "..", "artifacts", "pbo", "@DayZAIBalancer")),
         };
-        foreach (var c in candidates)
-            if (Directory.Exists(c)) return c;
+        foreach (var c in candidates) if (Directory.Exists(c)) return c;
         return null;
     }
 
@@ -2049,8 +1744,6 @@ public partial class MainWindow : Window
         foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
             File.Copy(file, file.Replace(source, target), overwrite: true);
     }
-
-    // ---- Pre-start XML merge (reuses XmlMergeService — same path as the Combine button) ----
 
     private async Task<bool> RunPreStartMergeAsync(string presetId)
     {
@@ -2071,8 +1764,7 @@ public partial class MainWindow : Window
         try
         {
             var excluded = ReadExcludedXmlGenDirs();
-            if (excluded is { Count: > 0 })
-                AppendLogLine($"[manager] pre-start merge: excluding {excluded.Count} dir(s)");
+            if (excluded is { Count: > 0 }) AppendLogLine($"[manager] pre-start merge: excluding {excluded.Count} dir(s)");
             AppendLogLine($"[manager] pre-start merge: {preset.DisplayName} -> {outFile}");
             await Task.Run(() => XmlMergeService.Generate(root, preset, mergeMode, outFile, excluded));
             return true;

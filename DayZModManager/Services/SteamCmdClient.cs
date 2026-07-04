@@ -287,7 +287,11 @@ internal sealed class SteamCmdClient
         };
         using var proc = Process.Start(psi);
         if (proc == null) throw new IOException("Failed to start cmd.exe for junction creation.");
-        proc.WaitForExit();
+        if (!proc.WaitForExit(10_000))
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { }
+            throw new IOException($"mklink /J timed out creating junction \"{link}\".");
+        }
         if (proc.ExitCode != 0)
             throw new IOException($"mklink /J failed (exit {proc.ExitCode}): {proc.StandardError.ReadToEnd()}");
     }

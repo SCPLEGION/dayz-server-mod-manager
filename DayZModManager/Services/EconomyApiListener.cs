@@ -151,7 +151,10 @@ public sealed class EconomyApiListener : IDisposable
                 break;
             }
 
-            _ = Task.Run(() => HandleAsync(ctx), token);
+            _ = Task.Run(() => HandleAsync(ctx), token)
+                .ContinueWith(
+                    t => Log("Unhandled handler exception: " + t.Exception?.GetBaseException().Message),
+                    TaskContinuationOptions.OnlyOnFaulted);
         }
     }
 
@@ -213,6 +216,10 @@ public sealed class EconomyApiListener : IDisposable
             Log("Handler error: " + ex.Message);
             try { await WriteStatusAsync(ctx, HttpStatusCode.InternalServerError, "error"); } catch { }
         }
+        finally
+        {
+            try { ctx.Response.Close(); } catch { }
+        }
     }
 
     private static async Task WriteStatusAsync(HttpListenerContext ctx, HttpStatusCode code, string msg)
@@ -227,8 +234,11 @@ public sealed class EconomyApiListener : IDisposable
 
     private void AppendToBuffer(EconomySnapshot snap)
     {
-        _ringBuffer.Enqueue(snap);
-        while (_ringBuffer.Count > InMemoryBufferSize && _ringBuffer.TryDequeue(out _)) { }
+        lock (_gate)
+        {
+            _ringBuffer.Enqueue(snap);
+            while (_ringBuffer.Count > InMemoryBufferSize && _ringBuffer.TryDequeue(out _)) { }
+        }
     }
 
     private void PersistSnapshot(EconomySnapshot snap)

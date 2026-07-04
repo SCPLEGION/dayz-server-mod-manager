@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -49,6 +50,8 @@ internal sealed record XmlMergeStats(
 
 internal static class XmlMergeService
 {
+    private static readonly ConcurrentDictionary<string, Regex> RegexCache = new(StringComparer.Ordinal);
+
     public static XmlMergeStats Preview(
         string modsRoot,
         XmlMergePreset preset,
@@ -220,12 +223,13 @@ internal static class XmlMergeService
     }
 
     private static Regex GlobToRegex(string pattern)
-    {
-        var rx = "^" + Regex.Escape(pattern)
-                          .Replace("\\*", ".*")
-                          .Replace("\\?", ".") + "$";
-        return new Regex(rx, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    }
+        => RegexCache.GetOrAdd(pattern, static p =>
+        {
+            var rx = "^" + Regex.Escape(p)
+                              .Replace("\\*", ".*")
+                              .Replace("\\?", ".") + "$";
+            return new Regex(rx, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        });
 
     private static XElement? FindRoot(XDocument doc, string rootName)
     {

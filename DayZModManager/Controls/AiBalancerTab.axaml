@@ -1,0 +1,386 @@
+<UserControl x:Class="DayZModManager.Controls.AiBalancerTab"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Bg}">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{StaticResource Bg1}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="14,8">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="07" Foreground="{StaticResource Line2}" FontSize="9" VerticalAlignment="Center"/>
+                <TextBlock Text="  // AI BALANCER" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+                <Ellipse x:Name="ListenerDot" Width="6" Height="6" Margin="14,0,4,0" VerticalAlignment="Center" Fill="{StaticResource Muted}"/>
+                <TextBlock x:Name="ListenerHeaderText" Text="Listener stopped" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
+            <StackPanel MaxWidth="1400" HorizontalAlignment="Stretch">
+
+                <!-- API RECEIVER -->
+                <Border Classes="Card" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="API RECEIVER" Margin="0,0,0,10"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <Ellipse x:Name="ListenerDot2" Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center" Fill="{StaticResource Muted}"/>
+                                    <TextBlock x:Name="ListenerStatusText" Text="Stopped" Foreground="{StaticResource Text}" FontSize="11" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                    <Button x:Name="BtnStartListener" Content="Start Listener" Width="120" Margin="0,0,6,0" Click="OnStartListenerClick"/>
+                                    <Button x:Name="BtnStopListener" Content="Stop Listener" Width="120" Click="OnStopListenerClick" IsEnabled="False"/>
+                                </StackPanel>
+                                <TextBlock x:Name="LastReceivedText" Text="Last data received: never" Foreground="{StaticResource Text}" FontSize="11" Margin="0,8,0,0"/>
+                            </StackPanel>
+                            <Grid Grid.Column="1" Margin="8,0,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Port" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox Grid.Row="0" Grid.Column="1" x:Name="PortTextBox" Text="7823" Margin="0,2,0,4"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Secret token" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="SecretBox" PasswordChar="•" Margin="0,2,0,0"/>
+                            </Grid>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- OPENAI SETTINGS -->
+                <Border Classes="Card" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="OPENAI SETTINGS" Margin="0,0,0,10"/>
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="20"/>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="API key" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="4" x:Name="ApiKeyBox" PasswordChar="•" Margin="0,2,0,6"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Model" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ModelCombo" SelectedIndex="0" Margin="0,2,0,6" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Content="gpt-5.4-nano-2026-03-17"/>
+                                <ComboBoxItem Content="gpt-5.4-nano"/>
+                                <ComboBoxItem Content="gpt-5.4-mini"/>
+                                <ComboBoxItem Content="gpt-5.5"/>
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Grid.Column="3" Text="Server type" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox Grid.Row="1" Grid.Column="4" x:Name="ServerTypeCombo" SelectedIndex="2" Margin="0,2,0,6" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Content="Vanilla"/>
+                                <ComboBoxItem Content="Hardcore"/>
+                                <ComboBoxItem Content="PvE"/>
+                                <ComboBoxItem Content="PvP"/>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Concurrency" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ConcurrencyCombo" SelectedIndex="2" Margin="0,2,0,0" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Content="1"/>
+                                <ComboBoxItem Content="2"/>
+                                <ComboBoxItem Content="3"/>
+                                <ComboBoxItem Content="5"/>
+                                <ComboBoxItem Content="8"/>
+                                <ComboBoxItem Content="10"/>
+                            </ComboBox>
+                            <TextBlock Grid.Row="2" Grid.Column="3" Text="Batch size" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox Grid.Row="2" Grid.Column="4" x:Name="BatchSizeCombo" SelectedIndex="1" Margin="0,2,0,0" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Content="20"/>
+                                <ComboBoxItem Content="30"/>
+                                <ComboBoxItem Content="50"/>
+                                <ComboBoxItem Content="100"/>
+                            </ComboBox>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- CONFIG FILES -->
+                <Border Classes="Card" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="CONFIG FILES" Margin="0,0,0,10"/>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                                <ColumnDefinition Width="190"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="types.xml" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="1" x:Name="TypesXmlPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseTypesXml"/>
+                            <Button Grid.Column="3" Content="Load from merged output" Margin="6,0,0,0" Click="OnLoadFromMergedOutput"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="events.xml" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="1" x:Name="EventsXmlPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseEventsXml"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="globals.xml" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="1" x:Name="GlobalsXmlPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseGlobalsXml"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="spawnabletypes.xml" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="1" x:Name="SpawnableTypesXmlPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseSpawnableTypesXml"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Server root" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="1" x:Name="ServerRootPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseServerRoot"/>
+                        </Grid>
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="86"/>
+                                <ColumnDefinition Width="120"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="Mission folder" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox Grid.Column="1" x:Name="MissionPathBox"/>
+                            <Button Grid.Column="2" Content="Browse" Margin="6,0,0,0" Click="OnBrowseMission"/>
+                            <Button Grid.Column="3" Content="Discover files" Margin="6,0,0,0" Click="OnDiscoverServerFiles"/>
+                        </Grid>
+                        <TextBlock x:Name="ServerFilesSummaryText" Foreground="{StaticResource Muted}" FontSize="11" Margin="140,2,0,0" Text="No server scanned yet."/>
+                        <Button Content="Save settings" Width="140" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OnSaveAiSettings"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- AI TASKS -->
+                <Border Classes="Card" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="AI TASKS" Margin="0,0,0,10"/>
+                        <TextBlock Text="Describe what you want to change. Example: &quot;make a full day take 2 hours and night 15 minutes&quot;." Foreground="{StaticResource Muted}" FontSize="11" Margin="0,2,0,6"/>
+                        <TextBox x:Name="AiTaskPromptBox" Height="60" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Button x:Name="BtnPlanTask" Content="Plan with AI" Width="140" Click="OnPlanTaskClick"/>
+                            <Button x:Name="BtnApplyTaskPlan" Content="Apply approved" Width="140" Margin="6,0,0,0" Click="OnApplyTaskPlanClick" IsEnabled="False"/>
+                            <Button x:Name="BtnClearTaskPlan" Content="Clear" Width="80" Margin="6,0,0,0" Click="OnClearTaskPlanClick"/>
+                            <CheckBox x:Name="TaskBackupCheck" Content="Backup files before applying" IsChecked="True" Margin="14,4,0,0"/>
+                            <TextBlock x:Name="TaskTokensText" Foreground="{StaticResource Muted}" FontSize="11" Margin="14,4,0,0" Text=""/>
+                        </StackPanel>
+                        <TextBlock x:Name="TaskNotesText" Foreground="{StaticResource Sub}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6" Text=""/>
+                        <DataGrid x:Name="TaskPlanGrid" Height="180" AutoGenerateColumns="False"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"
+                                  RowBackground="{StaticResource Bg1}">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="OK" Binding="{Binding IsApproved}" Width="40"/>
+                                <DataGridTextColumn Header="Action" Binding="{Binding Kind}" IsReadOnly="True" Width="110"/>
+                                <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" IsReadOnly="True" Width="2*"/>
+                                <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" IsReadOnly="True" Width="2*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- LIVE ECONOMY DATA -->
+                <Border x:Name="EconomyGroup" Classes="Card" Margin="0,0,0,12" IsVisible="False">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="LIVE ECONOMY DATA" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
+                            <TextBlock Text="Last snapshot:" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="SnapshotTimeText" Text="—" Foreground="{StaticResource Text}" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock Text="  |  Players:" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                            <TextBlock x:Name="SnapshotPlayersText" Text="0/0" Foreground="{StaticResource Text}" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock Text="  |  Items:" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                            <TextBlock x:Name="SnapshotItemsText" Text="0" Foreground="{StaticResource Text}" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock Text="  |  Zombies:" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="14,0,4,0"/>
+                            <TextBlock x:Name="SnapshotZombiesText" Text="0/0" Foreground="{StaticResource Text}" FontSize="11" VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" x:Name="EconomySearchBox" TextChanged="OnEconomyFilterChanged"/>
+                            <ComboBox Grid.Column="1" x:Name="EconomyCategoryCombo" Margin="6,0,0,0" SelectionChanged="OnEconomyFilterChanged" HorizontalAlignment="Stretch"/>
+                            <ComboBox Grid.Column="2" x:Name="EconomyStatusCombo" Margin="6,0,0,0" SelectionChanged="OnEconomyFilterChanged" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                <ComboBoxItem Content="All"/>
+                                <ComboBoxItem Content="Balanced"/>
+                                <ComboBoxItem Content="Over-spawned"/>
+                                <ComboBoxItem Content="Under-spawned"/>
+                                <ComboBoxItem Content="Hoarded?"/>
+                                <ComboBoxItem Content="Crafted (skip)"/>
+                            </ComboBox>
+                            <CheckBox Grid.Column="3" x:Name="ShowCraftedCheck" Content="Show crafted" Margin="10,4,0,0" IsCheckedChanged="OnEconomyFilterChanged"/>
+                        </Grid>
+
+                        <DataGrid x:Name="EconomyGrid" Height="280" AutoGenerateColumns="False" IsReadOnly="True"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"
+                                  RowBackground="{StaticResource Bg1}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="ClassName" Binding="{Binding ClassName}" Width="250"/>
+                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="100"/>
+                                <DataGridTextColumn Header="Spawned" Binding="{Binding SpawnedCount}" Width="80"/>
+                                <DataGridTextColumn Header="Nominal" Binding="{Binding Nominal}" Width="80"/>
+                                <DataGridTextColumn Header="Ratio %" Binding="{Binding RatioText}" Width="80"/>
+                                <DataGridTextColumn Header="Trend" Binding="{Binding Trend}" Width="60"/>
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="120"/>
+                                <DataGridTextColumn Header="Last Seen" Binding="{Binding LastSeen}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <TextBlock x:Name="SummaryBalancedText" Foreground="{StaticResource Accent}" FontSize="11" Text="Balanced: 0"/>
+                            <TextBlock Text="  |  " Foreground="{StaticResource Muted}" FontSize="10"/>
+                            <TextBlock x:Name="SummaryOverText" Foreground="{StaticResource Amber}" FontSize="11" Text="Over-spawned: 0"/>
+                            <TextBlock Text="  |  " Foreground="{StaticResource Muted}" FontSize="10"/>
+                            <TextBlock x:Name="SummaryUnderText" Foreground="{StaticResource Cyan}" FontSize="11" Text="Under-spawned: 0"/>
+                            <TextBlock Text="  |  " Foreground="{StaticResource Muted}" FontSize="10"/>
+                            <TextBlock x:Name="SummarySevereText" Foreground="{StaticResource Red}" FontSize="11" Text="Severe: 0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- RUN AI BALANCER -->
+                <Border Classes="Card" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="RUN AI BALANCER" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,8">
+                            <Button x:Name="BtnRunBalancer" Content="Analyze and Generate Suggestions" Width="280" Height="32" Click="OnRunBalancerClick" IsEnabled="False"/>
+                            <Button x:Name="BtnCancelBalancer" Content="Cancel" Width="100" Height="32" Margin="8,0,0,0" Click="OnCancelBalancerClick" IsEnabled="False"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="ProgressPanel" IsVisible="False" Margin="0,4,0,0">
+                            <ProgressBar x:Name="OverallProgress" Height="14" Minimum="0" Maximum="100" Value="0" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="ProgressStatusText" Foreground="{StaticResource Text}" FontSize="11" Text="Idle"/>
+                            <ItemsControl x:Name="WorkersList" Margin="0,8,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{StaticResource Line2}" BorderThickness="1" Background="{StaticResource Bg2}" Margin="0,0,8,8" Padding="6" Width="120">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Title}" Foreground="{StaticResource Text}" FontWeight="Bold" FontSize="10"/>
+                                                <TextBlock Text="{Binding Status}" Foreground="{StaticResource Muted}" FontSize="9" Margin="0,2,0,4"/>
+                                                <ProgressBar Height="6" Minimum="0" Maximum="100" Value="{Binding ProgressPct}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+
+                        <TextBlock Text="// LOG" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" Margin="0,10,0,4"/>
+                        <TextBox x:Name="LogBox" Height="160" IsReadOnly="True" TextWrapping="NoWrap"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 Background="{StaticResource Bg2}" Foreground="{StaticResource Sub}"
+                                 FontFamily="{StaticResource MonoFont}" FontSize="11"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- SUGGESTIONS -->
+                <Border x:Name="SuggestionsGroup" Classes="Card" Margin="0,0,0,12" IsVisible="False">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="SUGGESTIONS" Margin="0,0,0,10"/>
+                        <TextBlock x:Name="SuggestionsSummaryText" Foreground="{StaticResource Text}" FontSize="11" Margin="0,2,0,8" Text=""/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Apply Selected" Width="120" Click="OnApplySelected"/>
+                            <Button Content="Reject Selected" Width="120" Margin="6,0,0,0" Click="OnRejectSelected"/>
+                            <Button Content="Select All" Width="100" Margin="6,0,0,0" Click="OnSelectAll"/>
+                            <Button Content="Select None" Width="100" Margin="6,0,0,0" Click="OnSelectNone"/>
+                            <Button Content="Select Severe" Width="120" Margin="6,0,0,0" Click="OnSelectSevere"/>
+                            <CheckBox x:Name="BackupCheck" Content="Backup files before applying" Margin="14,4,0,0" IsChecked="True"/>
+                            <Button Content="Export JSON" Width="100" Margin="14,0,0,0" Click="OnExportSuggestions"/>
+                        </StackPanel>
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" x:Name="SuggestionSearchBox" TextChanged="OnSuggestionFilterChanged"/>
+                            <ComboBox Grid.Column="1" x:Name="SuggestionFieldCombo" Margin="6,0,0,0" SelectionChanged="OnSuggestionFilterChanged" HorizontalAlignment="Stretch" SelectedIndex="0">
+                                <ComboBoxItem Content="All fields"/>
+                                <ComboBoxItem Content="nominal"/>
+                                <ComboBoxItem Content="min"/>
+                                <ComboBoxItem Content="cost"/>
+                                <ComboBoxItem Content="lifetime"/>
+                            </ComboBox>
+                            <CheckBox Grid.Column="2" x:Name="OnlyIncreasesCheck" Content="Only up" Margin="10,4,0,0" IsCheckedChanged="OnSuggestionFilterChanged"/>
+                            <CheckBox Grid.Column="3" x:Name="OnlyDecreasesCheck" Content="Only down" Margin="10,4,0,0" IsCheckedChanged="OnSuggestionFilterChanged"/>
+                            <CheckBox Grid.Column="4" x:Name="OnlySevereCheck" Content="Severe only" Margin="10,4,0,0" IsCheckedChanged="OnSuggestionFilterChanged"/>
+                        </Grid>
+
+                        <DataGrid x:Name="SuggestionsGrid" Height="320" AutoGenerateColumns="False"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"
+                                  RowBackground="{StaticResource Bg1}">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="OK" Binding="{Binding IsApproved}" Width="40"/>
+                                <DataGridTextColumn Header="ClassName" Binding="{Binding ClassName}" IsReadOnly="True" Width="220"/>
+                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="100"/>
+                                <DataGridTextColumn Header="Field" Binding="{Binding Field}" IsReadOnly="True" Width="80"/>
+                                <DataGridTextColumn Header="Old" Binding="{Binding OldValue}" IsReadOnly="True" Width="70"/>
+                                <DataGridTextColumn Header="New" Binding="{Binding NewValue}" IsReadOnly="True" Width="70"/>
+                                <DataGridTextColumn Header="Delta" Binding="{Binding DeltaText}" IsReadOnly="True" Width="60"/>
+                                <DataGridTextColumn Header="AI Reason" Binding="{Binding ReasonShort}" IsReadOnly="True" Width="*"/>
+                            </DataGrid.Columns>
+                            <DataGrid.RowDetailsTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Reason}" TextWrapping="Wrap" Foreground="{StaticResource Sub}" Margin="20,6,10,6" FontStyle="Italic"/>
+                                </DataTemplate>
+                            </DataGrid.RowDetailsTemplate>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- HISTORY -->
+                <Border Classes="Card" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Classes="PanelHeader" Text="HISTORY" Margin="0,0,0,10"/>
+                        <ListBox x:Name="HistoryList" Height="120" Background="{StaticResource Bg1}" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line2}"/>
+                        <Button Content="Refresh history" Width="140" Margin="0,8,0,0" HorizontalAlignment="Left" Click="OnRefreshAiHistory"/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>
