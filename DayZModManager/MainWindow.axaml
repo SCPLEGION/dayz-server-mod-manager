@@ -671,6 +671,30 @@
                             Background="{StaticResource Bg1}"
                             BorderBrush="{StaticResource Line}"
                             BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="PROFILE:" Foreground="{StaticResource Muted}"
+                                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox x:Name="ServerProfileComboBox" Width="180"
+                                      SelectionChanged="OnServerProfileSelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBox x:Name="ServerProfileNameTextBox" Width="140" Margin="10,0,0,0"
+                                     Watermark="profile name"/>
+                            <Button Content="⊕ NEW" Width="80" Margin="6,0,0,0" Click="OnAddServerProfile"/>
+                            <Button Content="✎ RENAME" Width="90" Margin="6,0,0,0" Click="OnRenameServerProfile"/>
+                            <Button Classes="BtnRed" Content="🗑 DELETE" Width="90" Margin="6,0,0,0" Click="OnDeleteServerProfile"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border DockPanel.Dock="Top"
+                            Background="{StaticResource Bg1}"
+                            BorderBrush="{StaticResource Line}"
+                            BorderThickness="0,0,0,1"
                             Padding="12,10">
                         <StackPanel Orientation="Horizontal">
                             <Button x:Name="ServerStartButton" Classes="BtnGreen"

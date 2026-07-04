@@ -35,6 +35,8 @@ public partial class MainWindow : Window
 
     private ServerProcessController? _server;
     private ServerConfig? _lastAppliedServerConfig;
+    private readonly ObservableCollection<AppConfigStore.ServerProfileEntry> _serverProfiles = new();
+    private bool _suppressServerProfileSelection;
     private RptLogTail? _tail;
     private readonly LinkedList<string> _tailBuffer = new();
     private DispatcherTimer? _uptimeTimer;
@@ -52,6 +54,7 @@ public partial class MainWindow : Window
         ModsListBox.ItemsSource = _modsListItems;
         ModFoldersListBox.ItemsSource = _modFolders;
         HistoryListBox.ItemsSource = _historyItems;
+        ServerProfileComboBox.ItemsSource = _serverProfiles;
 
         LocalIdsListBox.SelectionChanged += OnLocalIdSelected;
 
@@ -96,7 +99,14 @@ public partial class MainWindow : Window
             PreStartPresetComboBox.ItemsSource = XmlMergePresets.All;
             PreStartPresetComboBox.SelectedIndex = 0;
 
-            HydrateServerUiFromConfig(cfg.Server);
+            _suppressServerProfileSelection = true;
+            _serverProfiles.Clear();
+            foreach (var p in cfg.ServerProfiles!) _serverProfiles.Add(p);
+            var activeProfile = cfg.GetOrCreateActiveProfile();
+            ServerProfileComboBox.SelectedItem = activeProfile;
+            _suppressServerProfileSelection = false;
+
+            HydrateServerUiFromConfig(activeProfile.Server);
             InitServerController();
             UpdateServerModeVisibility();
             UpdateServerButtonsForState(ServerState.Stopped);
@@ -150,16 +160,19 @@ public partial class MainWindow : Window
 
     private void PersistAllDirsToConfig()
     {
-        var cfg = new AppConfigStore.Config
-        {
-            ModsRootPath = ModsRootTextBox?.Text?.Trim(),
-            LocalModsTxtPath = LocalFilePathTextBox?.Text?.Trim(),
-            CombineOutFileText = CombineOutFileTextBox?.Text?.Trim(),
-            MergeModeSelectedIndex = MergeModeComboBox?.SelectedIndex,
-            SelectedPresetId = (PresetComboBox?.SelectedItem as XmlMergePreset)?.Id,
-            ExcludedXmlGenDirs = ReadExcludedXmlGenDirs(),
-            Server = ReadServerConfigFromUi()
-        };
+        var cfg = AppConfigStore.Load();
+        cfg.ModsRootPath = ModsRootTextBox?.Text?.Trim();
+        cfg.LocalModsTxtPath = LocalFilePathTextBox?.Text?.Trim();
+        cfg.CombineOutFileText = CombineOutFileTextBox?.Text?.Trim();
+        cfg.MergeModeSelectedIndex = MergeModeComboBox?.SelectedIndex;
+        cfg.SelectedPresetId = (PresetComboBox?.SelectedItem as XmlMergePreset)?.Id;
+        cfg.ExcludedXmlGenDirs = ReadExcludedXmlGenDirs();
+
+        var active = SelectedServerProfile ?? cfg.GetOrCreateActiveProfile();
+        active.Server = ReadServerConfigFromUi();
+        cfg.ServerProfiles = _serverProfiles.Count > 0 ? _serverProfiles.ToList() : cfg.ServerProfiles;
+        cfg.ActiveServerProfileId = active.Id;
+
         AppConfigStore.Save(cfg);
     }
 
@@ -999,18 +1012,22 @@ public partial class MainWindow : Window
 
     private async void OnSaveSettings(object? sender, RoutedEventArgs e)
     {
-        var cfg = new AppConfigStore.Config
-        {
-            ModsRootPath = ModsRootTextBox.Text.Trim(),
-            LocalModsTxtPath = LocalFilePathTextBox.Text.Trim(),
-            CombineOutFileText = CombineOutFileTextBox.Text.Trim(),
-            MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex,
-            SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id,
-            ExcludedXmlGenDirs = ReadExcludedXmlGenDirs(),
-            Server = ReadServerConfigFromUi()
-        };
+        var cfg = AppConfigStore.Load();
+        cfg.ModsRootPath = ModsRootTextBox.Text.Trim();
+        cfg.LocalModsTxtPath = LocalFilePathTextBox.Text.Trim();
+        cfg.CombineOutFileText = CombineOutFileTextBox.Text.Trim();
+        cfg.MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex;
+        cfg.SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id;
+        cfg.ExcludedXmlGenDirs = ReadExcludedXmlGenDirs();
+
+        var active = SelectedServerProfile ?? cfg.GetOrCreateActiveProfile();
+        var serverCfg = ReadServerConfigFromUi();
+        active.Server = serverCfg;
+        cfg.ServerProfiles = _serverProfiles.Count > 0 ? _serverProfiles.ToList() : cfg.ServerProfiles;
+        cfg.ActiveServerProfileId = active.Id;
+
         AppConfigStore.Save(cfg);
-        ApplyServerConfigToController(cfg.Server);
+        ApplyServerConfigToController(serverCfg);
         await MsgBox.Info(this, "Settings saved.", "Saved");
     }
 
@@ -1265,6 +1282,120 @@ public partial class MainWindow : Window
     }
 
     private void OnServerModeChanged(object? sender, RoutedEventArgs e) => UpdateServerModeVisibility();
+
+    // ---- Server profiles (multiple named launch configs, one active at a time) ----
+
+    private AppConfigStore.ServerProfileEntry? SelectedServerProfile =>
+        ServerProfileComboBox.SelectedItem as AppConfigStore.ServerProfileEntry;
+
+    private async void OnServerProfileSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressServerProfileSelection) return;
+        var profile = SelectedServerProfile;
+        if (profile == null) return;
+
+        if (_server != null && (_server.State == ServerState.Running || _server.State == ServerState.Starting))
+        {
+            await MsgBox.Info(this, "Stop the running server before switching profiles.", "Server profiles");
+            _suppressServerProfileSelection = true;
+            ServerProfileComboBox.SelectedItem = e.RemovedItems.Count > 0 ? e.RemovedItems[0] : profile;
+            _suppressServerProfileSelection = false;
+            return;
+        }
+
+        HydrateServerUiFromConfig(profile.Server);
+        ApplyServerConfigToController(profile.Server);
+        UpdateServerModeVisibility();
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = profile.Id;
+        AppConfigStore.Save(store);
+    }
+
+    private void OnAddServerProfile(object? sender, RoutedEventArgs e)
+    {
+        var name = (ServerProfileNameTextBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name)) name = $"Profile {_serverProfiles.Count + 1}";
+
+        var entry = new AppConfigStore.ServerProfileEntry { Name = name, Server = new ServerConfig() };
+        _serverProfiles.Add(entry);
+
+        _suppressServerProfileSelection = true;
+        ServerProfileComboBox.SelectedItem = entry;
+        _suppressServerProfileSelection = false;
+
+        HydrateServerUiFromConfig(entry.Server);
+        UpdateServerModeVisibility();
+        ServerProfileNameTextBox.Text = string.Empty;
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = entry.Id;
+        AppConfigStore.Save(store);
+    }
+
+    private async void OnRenameServerProfile(object? sender, RoutedEventArgs e)
+    {
+        var profile = SelectedServerProfile;
+        if (profile == null) return;
+        var name = (ServerProfileNameTextBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            await MsgBox.Info(this, "Enter a new name first.", "Rename profile");
+            return;
+        }
+
+        profile.Name = name;
+        // Force the ComboBox to re-render the bound Name.
+        var idx = _serverProfiles.IndexOf(profile);
+        if (idx >= 0) { _serverProfiles.RemoveAt(idx); _serverProfiles.Insert(idx, profile); }
+        _suppressServerProfileSelection = true;
+        ServerProfileComboBox.SelectedItem = profile;
+        _suppressServerProfileSelection = false;
+        ServerProfileNameTextBox.Text = string.Empty;
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = profile.Id;
+        AppConfigStore.Save(store);
+    }
+
+    private async void OnDeleteServerProfile(object? sender, RoutedEventArgs e)
+    {
+        var profile = SelectedServerProfile;
+        if (profile == null) return;
+
+        if (_serverProfiles.Count <= 1)
+        {
+            await MsgBox.Info(this, "At least one server profile must remain.", "Delete profile");
+            return;
+        }
+
+        if (_server != null && (_server.State == ServerState.Running || _server.State == ServerState.Starting))
+        {
+            await MsgBox.Info(this, "Stop the running server before deleting profiles.", "Delete profile");
+            return;
+        }
+
+        if (!await MsgBox.Confirm(this, $"Delete profile \"{profile.Name}\"?", "Delete profile")) return;
+
+        _serverProfiles.Remove(profile);
+        var next = _serverProfiles[0];
+
+        _suppressServerProfileSelection = true;
+        ServerProfileComboBox.SelectedItem = next;
+        _suppressServerProfileSelection = false;
+
+        HydrateServerUiFromConfig(next.Server);
+        ApplyServerConfigToController(next.Server);
+        UpdateServerModeVisibility();
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = next.Id;
+        AppConfigStore.Save(store);
+    }
 
     private void UpdateServerButtonsForState(ServerState s)
     {
