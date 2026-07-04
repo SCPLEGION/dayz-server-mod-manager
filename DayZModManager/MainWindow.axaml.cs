@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<ulong, List<ulong>> _depsCache = new();
 
     private ServerProcessController? _server;
+    private ServerConfig? _lastAppliedServerConfig;
     private RptLogTail? _tail;
     private readonly LinkedList<string> _tailBuffer = new();
     private DispatcherTimer? _uptimeTimer;
@@ -1172,6 +1173,10 @@ public partial class MainWindow : Window
             if (preset != null) PreStartPresetComboBox.SelectedItem = preset;
         }
         _tailLineCap = cfg.TailLineCap > 0 ? cfg.TailLineCap : 2000;
+        WebhookUrlTextBox.Text = cfg.WebhookUrl ?? string.Empty;
+        NotifyOnCrashCheckBox.IsChecked = cfg.NotifyOnCrash;
+        NotifyOnRestartCheckBox.IsChecked = cfg.NotifyOnRestart;
+        NotifyOnModUpdateCheckBox.IsChecked = cfg.NotifyOnModUpdate;
     }
 
     private ServerConfig ReadServerConfigFromUi()
@@ -1209,7 +1214,11 @@ public partial class MainWindow : Window
             AutoRestartMaxRetries = maxRetries,
             RunPreStartMerge = PreStartMergeCheckBox.IsChecked == true,
             PreStartPresetId = (PreStartPresetComboBox.SelectedItem as XmlMergePreset)?.Id,
-            TailLineCap = _tailLineCap
+            TailLineCap = _tailLineCap,
+            WebhookUrl = NullIfEmpty(WebhookUrlTextBox.Text),
+            NotifyOnCrash = NotifyOnCrashCheckBox.IsChecked == true,
+            NotifyOnRestart = NotifyOnRestartCheckBox.IsChecked == true,
+            NotifyOnModUpdate = NotifyOnModUpdateCheckBox.IsChecked == true
         };
     }
 
@@ -1229,12 +1238,15 @@ public partial class MainWindow : Window
         _server.Exited += (code, crashed) => Dispatcher.UIThread.InvokeAsync(() =>
         {
             ServerActionStatusText.Text = crashed ? $"crashed (exit {code})" : $"exited (exit {code})";
+            if (crashed && _lastAppliedServerConfig is { NotifyOnCrash: true } cfg)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, $"⚠️ DayZ server crashed (exit code {code}).");
         });
     }
 
     private void ApplyServerConfigToController(ServerConfig? cfg)
     {
         if (_server == null || cfg == null) return;
+        _lastAppliedServerConfig = cfg;
         _server.AutoRestartOnCrash = cfg.AutoRestartOnCrash;
         _server.AutoRestartBackoffSeconds = cfg.AutoRestartBackoffSeconds;
         _server.AutoRestartMaxRetries = cfg.AutoRestartMaxRetries;
@@ -1524,6 +1536,8 @@ public partial class MainWindow : Window
                 cfg.Ps1LaunchParam, cfg.Ps1AppBranch, deployedServer);
             await _server.RestartAsync(spec);
             ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
+            if (cfg.NotifyOnRestart)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, $"🔄 DayZ server restarted ({ServerActionStatusText.Text}).");
         }
         catch (Exception ex) { ServerActionStatusText.Text = ex.Message; }
         finally { UpdateServerButtonsForState(_server.State); }
@@ -1547,7 +1561,13 @@ public partial class MainWindow : Window
             else
             {
                 ok = await RunSteamCmdUpdateAsync(cfg);
-                if (ok) { DeployMods(cfg); ServerActionStatusText.Text = "mods updated"; }
+                if (ok)
+                {
+                    DeployMods(cfg);
+                    ServerActionStatusText.Text = "mods updated";
+                    if (cfg.NotifyOnModUpdate)
+                        _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, "📦 DayZ server mods updated.");
+                }
                 else ServerActionStatusText.Text = "update failed";
             }
         }

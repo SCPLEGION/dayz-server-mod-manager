@@ -119,4 +119,18 @@ public sealed class ServerConfig
     /// </summary>
     [JsonPropertyName("managerModSourceDir")]
     public string? ManagerModSourceDir { get; set; }
+
+    // ---- Notifications (Discord / generic webhook) ----
+
+    [JsonPropertyName("webhookUrl")]
+    public string? WebhookUrl { get; set; }
+
+    [JsonPropertyName("notifyOnCrash")]
+    public bool NotifyOnCrash { get; set; } = true;
+
+    [JsonPropertyName("notifyOnRestart")]
+    public bool NotifyOnRestart { get; set; } = true;
+
+    [JsonPropertyName("notifyOnModUpdate")]
+    public bool NotifyOnModUpdate { get; set; }
 }
