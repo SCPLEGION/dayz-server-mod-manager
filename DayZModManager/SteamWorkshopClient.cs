@@ -76,6 +76,35 @@ internal static class SteamWorkshopClient
         }).ToList();
     }
 
+    public static async Task<List<ulong>> GetCollectionChildrenAsync(ulong collectionId, string? authKey)
+    {
+        // ISteamRemoteStorage/GetCollectionDetails returns every item directly inside a Workshop
+        // Collection (not their dependencies - callers should still run those through the normal
+        // dependency-closure resolver).
+        var url = "https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/";
+
+        var form = new Dictionary<string, string>
+        {
+            ["collectioncount"] = "1",
+            ["publishedfileids[0]"] = collectionId.ToString()
+        };
+
+        if (!string.IsNullOrWhiteSpace(authKey))
+            form["key"] = authKey;
+
+        using var content = new FormUrlEncodedContent(form);
+
+        using var resp = await Http.PostAsync(url, content);
+        resp.EnsureSuccessStatusCode();
+
+        await using var stream = await resp.Content.ReadAsStreamAsync();
+        var payload = await JsonSerializer.DeserializeAsync<GetCollectionDetailsResponse>(stream, JsonOptions);
+
+        var details = payload?.Response?.CollectionDetails?.FirstOrDefault();
+        var children = details?.Children ?? new List<PublishedFileChild>();
+        return children.Select(c => c.PublishedFileId).ToList();
+    }
+
     public static async Task<List<ulong>> GetChildrenPublishedFileIdsAsync(ulong publishedFileId, string apiKey)
     {
         // IPublishedFileService/GetDetails with includechildren=true returns dependency tree nodes in "children".
@@ -96,6 +125,24 @@ internal static class SteamWorkshopClient
         var children = details?.Children ?? new List<PublishedFileChild>();
         return children.Select(c => c.PublishedFileId).ToList();
     }
+}
+
+internal sealed class GetCollectionDetailsResponse
+{
+    [JsonPropertyName("response")]
+    public GetCollectionDetailsResponseInner? Response { get; init; }
+}
+
+internal sealed class GetCollectionDetailsResponseInner
+{
+    [JsonPropertyName("collectiondetails")]
+    public List<CollectionDetailsResponseItem>? CollectionDetails { get; init; }
+}
+
+internal sealed class CollectionDetailsResponseItem
+{
+    [JsonPropertyName("children")]
+    public List<PublishedFileChild>? Children { get; init; }
 }
 
 internal sealed class GetDetailsResponse

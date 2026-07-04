@@ -589,6 +589,83 @@ public partial class MainWindow : Window
         }
     }
 
+    private static ulong ParseCollectionIdOrUrl(string raw)
+    {
+        raw = raw.Trim();
+        var idxQuery = raw.IndexOf("?id=", StringComparison.OrdinalIgnoreCase);
+        if (idxQuery >= 0)
+        {
+            var tail = raw[(idxQuery + 4)..];
+            var ampIdx = tail.IndexOf('&');
+            if (ampIdx >= 0) tail = tail[..ampIdx];
+            raw = tail;
+        }
+        return ModStorage.ParseWorkshopId(raw);
+    }
+
+    private async void OnImportCollection(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var raw = CollectionIdTextBox.Text ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                AddStatusTextBlock.Text = "Enter a collection ID or URL first.";
+                return;
+            }
+
+            ulong collectionId;
+            try { collectionId = ParseCollectionIdOrUrl(raw); }
+            catch
+            {
+                AddStatusTextBlock.Text = "Invalid collection ID/URL.";
+                return;
+            }
+
+            var apiKey = SearchApiKeyTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
+
+            AddStatusTextBlock.Text = "Fetching collection...";
+            var children = await SteamWorkshopClient.GetCollectionChildrenAsync(collectionId, apiKey);
+            if (children.Count == 0)
+            {
+                AddStatusTextBlock.Text = "Collection is empty or could not be read.";
+                return;
+            }
+
+            var root = new HashSet<ulong>(children);
+
+            var closure = root;
+            if (AutoAddDepsCheckBox.IsChecked == true)
+            {
+                AddStatusTextBlock.Text = "Resolving dependencies...";
+                closure = await ResolveDependenciesClosureAsync(root, apiKey);
+            }
+
+            var modsTxtPath = CurrentModsTxtPath();
+            var existing = ModStorage.LoadIds(modsTxtPath);
+            var toAdd = closure.Where(x => !existing.Contains(x)).ToArray();
+
+            if (toAdd.Length == 0) { AddStatusTextBlock.Text = "Nothing to add (already in mods.txt)."; return; }
+
+            var preview = BuildModsTxtAddPreview(toAdd, apiKey);
+            if (!await MsgBox.Confirm(this, preview, "Preview mods.txt changes")) return;
+
+            existing.UnionWith(toAdd);
+            ModStorage.SaveIdsFromSet(modsTxtPath, existing);
+            AddStatusTextBlock.Text = AutoAddDepsCheckBox.IsChecked == true
+                ? $"Imported collection: added {toAdd.Length} mods (incl. dependencies)."
+                : $"Imported collection: added {toAdd.Length} mods to mods.txt.";
+
+            HistoryLogger.Append("add", toAdd, Array.Empty<ulong>(), "collection-import");
+            await RefreshModsListAsync();
+        }
+        catch (Exception ex)
+        {
+            AddStatusTextBlock.Text = ex.Message;
+        }
+    }
+
     private async Task<HashSet<ulong>> ResolveDependenciesClosureAsync(HashSet<ulong> rootIds, string apiKey)
     {
         var visited = new HashSet<ulong>(rootIds);

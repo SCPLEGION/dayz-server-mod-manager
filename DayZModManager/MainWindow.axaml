@@ -410,6 +410,11 @@
                             <Button Classes="BtnGreen" Content="⊕ ADD BULK TO MODS.TXT"
                                     Click="OnAddBulk" Margin="0,8,0,4" HorizontalAlignment="Stretch"/>
 
+                            <TextBlock Text="// IMPORT WORKSHOP COLLECTION" Classes="SectionLabel" Margin="0,8,0,6"/>
+                            <TextBox x:Name="CollectionIdTextBox" Watermark="Collection ID or URL"/>
+                            <Button Classes="BtnGreen" Content="⊕ IMPORT COLLECTION"
+                                    Click="OnImportCollection" Margin="0,8,0,4" HorizontalAlignment="Stretch"/>
+
                             <TextBlock Text="// LOOKUP" Classes="SectionLabel" Margin="0,8,0,6"/>
                             <CheckBox x:Name="ModsLookupCheckBox" Content="lookup titles in mods.txt"/>
                             <TextBox x:Name="ModsApiKeyTextBox" Margin="0,6,0,0"/>
