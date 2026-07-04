@@ -24,6 +24,7 @@ public partial class AiBalancerTab : UserControl
     private readonly EconomyApiListener _listener = new();
     private readonly AiBalancerService _ai = new();
     private readonly XmlApplyService _xml = new();
+    private readonly EventsXmlApplyService _eventsXml = new();
     private readonly ServerFilesService _serverFiles = new();
     private readonly AiTaskService _taskAi = new();
     private readonly TaskApplyService _taskApply = new();
@@ -552,13 +553,6 @@ public partial class AiBalancerTab : UserControl
 
     private async void OnApplySelected(object? sender, RoutedEventArgs e)
     {
-        var path = TypesXmlPathBox.Text?.Trim() ?? string.Empty;
-        if (string.IsNullOrEmpty(path) || !File.Exists(path))
-        {
-            await ShowWarning("Set a valid types.xml path first.");
-            return;
-        }
-
         var approvedRows = _viewSuggestions.Where(r => r.IsApproved).ToList();
         if (approvedRows.Count == 0)
         {
@@ -566,43 +560,87 @@ public partial class AiBalancerTab : UserControl
             return;
         }
 
-        var backupNote = BackupCheck.IsChecked == true ? "Original will be backed up." : "No backup will be created.";
-        if (!await MsgBox.Confirm(GetParentWindow(), $"Apply {approvedRows.Count} field change(s) to types.xml?\n{backupNote}", "Confirm apply")) return;
+        var typesRows = approvedRows.Where(r => r.Target == SuggestionTarget.TypesXml).ToList();
+        var eventsRows = approvedRows.Where(r => r.Target == SuggestionTarget.EventsXml).ToList();
 
-        var byClass = approvedRows.GroupBy(r => r.ClassName, StringComparer.OrdinalIgnoreCase);
-        var toApply = new List<BalanceSuggestion>();
-        foreach (var g in byClass)
+        var typesPath = TypesXmlPathBox.Text?.Trim() ?? string.Empty;
+        if (typesRows.Count > 0 && (string.IsNullOrEmpty(typesPath) || !File.Exists(typesPath)))
         {
-            var sug = new BalanceSuggestion
-            {
-                ClassName = g.Key,
-                Category = g.First().Category,
-                AiReason = g.First().Reason,
-                IsApproved = true,
-            };
-            foreach (var r in g)
-                sug.Changes[r.Field] = new FieldChange { OldValue = r.OldValue, NewValue = r.NewValue };
-            toApply.Add(sug);
+            await ShowWarning("Set a valid types.xml path first.");
+            return;
         }
+
+        var eventsPath = EventsXmlPathBox.Text?.Trim() ?? string.Empty;
+        if (eventsRows.Count > 0 && (string.IsNullOrEmpty(eventsPath) || !File.Exists(eventsPath)))
+        {
+            await ShowWarning("Set a valid events.xml path first (zombie/animal spawn-group suggestions are selected).");
+            return;
+        }
+
+        var backupNote = BackupCheck.IsChecked == true ? "Original file(s) will be backed up." : "No backup will be created.";
+        if (!await MsgBox.Confirm(GetParentWindow(), $"Apply {approvedRows.Count} field change(s)?\n{backupNote}", "Confirm apply")) return;
+
+        var applied = 0;
+        var notFound = 0;
+        var errors = 0;
+        var backupPaths = new List<string>();
 
         try
         {
-            var applyResult = _xml.Apply(toApply, path, BackupCheck.IsChecked == true);
-            var msg = $"Applied: {applyResult.Applied}\nNot found: {applyResult.NotFound}";
-            if (!string.IsNullOrEmpty(applyResult.BackupPath)) msg += $"\nBackup: {Path.GetFileName(applyResult.BackupPath)}";
-            if (applyResult.Errors.Count > 0) msg += "\nErrors: " + applyResult.Errors.Count;
+            if (typesRows.Count > 0)
+            {
+                var toApply = BuildSuggestionsFromRows(typesRows, SuggestionTarget.TypesXml);
+                var r = _xml.Apply(toApply, typesPath, BackupCheck.IsChecked == true);
+                applied += r.Applied; notFound += r.NotFound; errors += r.Errors.Count;
+                if (!string.IsNullOrEmpty(r.BackupPath)) backupPaths.Add(r.BackupPath);
+            }
+
+            if (eventsRows.Count > 0)
+            {
+                var toApply = BuildSuggestionsFromRows(eventsRows, SuggestionTarget.EventsXml);
+                var r = _eventsXml.Apply(toApply, eventsPath, BackupCheck.IsChecked == true);
+                applied += r.Applied; notFound += r.NotFound; errors += r.Errors.Count;
+                if (!string.IsNullOrEmpty(r.BackupPath)) backupPaths.Add(r.BackupPath);
+            }
+
+            var msg = $"Applied: {applied}\nNot found: {notFound}";
+            if (backupPaths.Count > 0) msg += "\nBackup: " + string.Join(", ", backupPaths.Select(Path.GetFileName));
+            if (errors > 0) msg += "\nErrors: " + errors;
             await ShowInfo(msg);
-            AppendLog($"Apply complete. {applyResult.Applied} applied, {applyResult.NotFound} not found, {applyResult.Errors.Count} errors.");
+            AppendLog($"Apply complete. {applied} applied, {notFound} not found, {errors} errors.");
 
             SaveHistoryEntry(_allSuggestions.Count, 0, _cfg.OpenAiModel,
                 approvedRows.Count == _allSuggestions.Count ? "Applied" : "Partially applied",
-                approvedRows.Count, _allSuggestions.Count - approvedRows.Count, applyResult.BackupPath);
+                approvedRows.Count, _allSuggestions.Count - approvedRows.Count, backupPaths.FirstOrDefault());
             RefreshHistoryList();
         }
         catch (Exception ex)
         {
             await ShowError("Apply failed: " + ex.Message);
         }
+    }
+
+    private static List<BalanceSuggestion> BuildSuggestionsFromRows(
+        List<SuggestionRowViewModel> rows, SuggestionTarget target)
+    {
+        var toApply = new List<BalanceSuggestion>();
+        foreach (var g in rows.GroupBy(r => r.ClassName, StringComparer.OrdinalIgnoreCase))
+        {
+            var first = g.First();
+            var sug = new BalanceSuggestion
+            {
+                ClassName = g.Key,
+                Category = first.Category,
+                AiReason = first.Reason,
+                IsApproved = true,
+                Target = target,
+                EventName = first.Source?.EventName,
+            };
+            foreach (var r in g)
+                sug.Changes[r.Field] = new FieldChange { OldValue = r.OldValue, NewValue = r.NewValue };
+            toApply.Add(sug);
+        }
+        return toApply;
     }
 
     private async void OnExportSuggestions(object? sender, RoutedEventArgs e)

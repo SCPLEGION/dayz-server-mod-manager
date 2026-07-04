@@ -4,6 +4,14 @@ using System.Text.Json.Serialization;
 
 namespace DayZModManager.Models;
 
+public enum SuggestionTarget
+{
+    /// <summary>Change applies to types.xml's &lt;type name=ClassName&gt; element.</summary>
+    TypesXml,
+    /// <summary>Change applies to events.xml's &lt;event name=EventName&gt; element (zombie/animal spawn groups).</summary>
+    EventsXml,
+}
+
 public class BalanceSuggestion
 {
     public string ClassName { get; set; } = string.Empty;
@@ -11,6 +19,9 @@ public class BalanceSuggestion
     public Dictionary<string, FieldChange> Changes { get; set; } = new();
     public string? AiReason { get; set; }
     public bool IsApproved { get; set; } = true;
+    public SuggestionTarget Target { get; set; } = SuggestionTarget.TypesXml;
+    /// <summary>Only set when <see cref="Target"/> is <see cref="SuggestionTarget.EventsXml"/>.</summary>
+    public string? EventName { get; set; }
 }
 
 public class FieldChange
@@ -29,6 +40,17 @@ public class AiBalanceItem
     [JsonPropertyName("nominal")] public int? Nominal { get; set; }
     [JsonPropertyName("min")] public int? Min { get; set; }
     [JsonPropertyName("cost")] public int? Cost { get; set; }
+    [JsonPropertyName("lifetime")] public int? Lifetime { get; set; }
+    [JsonPropertyName("reason")] public string? Reason { get; set; }
+}
+
+/// <summary>Raw AI response shape for zombie/animal spawn-group (events.xml) balancing.</summary>
+public class AiSpawnGroupItem
+{
+    [JsonPropertyName("className")] public string ClassName { get; set; } = string.Empty;
+    [JsonPropertyName("nominal")] public int? Nominal { get; set; }
+    [JsonPropertyName("min")] public int? Min { get; set; }
+    [JsonPropertyName("max")] public int? Max { get; set; }
     [JsonPropertyName("lifetime")] public int? Lifetime { get; set; }
     [JsonPropertyName("reason")] public string? Reason { get; set; }
 }

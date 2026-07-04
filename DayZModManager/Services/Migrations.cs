@@ -45,6 +45,36 @@ internal static class Migrations
             ImportSnapshotFolder(conn);
             SetMarker(conn, "migrated:snapshots");
         }
+        if (!HasMarker(conn, "schema:balance_suggestions.target_kind"))
+        {
+            AddBalanceSuggestionTargetColumns(conn);
+            SetMarker(conn, "schema:balance_suggestions.target_kind");
+        }
+    }
+
+    // ---- schema migrations (ALTER TABLE for columns added after a table already shipped) ----
+
+    private static void AddBalanceSuggestionTargetColumns(SqliteConnection conn)
+    {
+        // Database.ApplySchema already creates these columns on a fresh install; these ALTERs
+        // only do real work against a pre-existing balance_suggestions table from before this
+        // feature shipped. "duplicate column" means a fresh CREATE TABLE already has it - fine.
+        ExecuteIgnoringDuplicateColumn(conn, "ALTER TABLE balance_suggestions ADD COLUMN target_kind TEXT NOT NULL DEFAULT 'types'");
+        ExecuteIgnoringDuplicateColumn(conn, "ALTER TABLE balance_suggestions ADD COLUMN event_name TEXT NULL");
+    }
+
+    private static void ExecuteIgnoringDuplicateColumn(SqliteConnection conn, string sql)
+    {
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.ExecuteNonQuery();
+        }
+        catch (SqliteException ex) when (ex.Message.IndexOf("duplicate column", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            // Column already present - nothing to do.
+        }
     }
 
     // ---- markers stored in app_config as JSON of {"_markers": {...}} merged with config blob ----

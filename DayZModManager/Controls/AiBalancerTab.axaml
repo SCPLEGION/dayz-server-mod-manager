@@ -355,6 +355,7 @@
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="OK" Binding="{Binding IsApproved}" Width="40"/>
                                 <DataGridTextColumn Header="ClassName" Binding="{Binding ClassName}" IsReadOnly="True" Width="220"/>
+                                <DataGridTextColumn Header="Target" Binding="{Binding TargetLabel}" IsReadOnly="True" Width="80"/>
                                 <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="100"/>
                                 <DataGridTextColumn Header="Field" Binding="{Binding Field}" IsReadOnly="True" Width="80"/>
                                 <DataGridTextColumn Header="Old" Binding="{Binding OldValue}" IsReadOnly="True" Width="70"/>
