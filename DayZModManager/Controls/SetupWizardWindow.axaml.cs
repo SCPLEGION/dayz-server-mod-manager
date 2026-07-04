@@ -5,6 +5,7 @@ using System.Threading;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using DayZModManager.Services;
 
 namespace DayZModManager.Controls;
@@ -129,6 +130,7 @@ public partial class SetupWizardWindow : Window
         }
 
         RunSetupButton.IsEnabled = false;
+        _cts?.Dispose();
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
 
@@ -145,14 +147,31 @@ public partial class SetupWizardWindow : Window
             if (string.IsNullOrWhiteSpace(steamCmdPath) || !File.Exists(steamCmdPath))
             {
                 StatusText.Text = "Downloading SteamCMD...";
-                steamCmdPath = await SteamCmdBootstrapper.DownloadAndExtractAsync(AppPaths.DefaultSteamCmdDir, AppendLog, ct);
+                // DownloadAndExtractAsync awaits with ConfigureAwait(false) internally, so its
+                // onLog callback can fire on a thread-pool thread - marshal back to the UI thread
+                // before touching LogTextBox.
+                steamCmdPath = await SteamCmdBootstrapper.DownloadAndExtractAsync(
+                    AppPaths.DefaultSteamCmdDir,
+                    line => Dispatcher.UIThread.Post(() => AppendLog(line)),
+                    ct);
                 SteamCmdPathTextBox.Text = steamCmdPath;
 
                 StatusText.Text = "Running SteamCMD self-update...";
+                var selfUpdateExit = 0;
                 await foreach (var line in new SteamCmdClient(steamCmdPath).RunSelfUpdateAsync(ct))
                 {
-                    if (line.StartsWith("__EXIT__:")) break;
+                    if (line.StartsWith("__EXIT__:"))
+                    {
+                        int.TryParse(line.AsSpan("__EXIT__:".Length), out selfUpdateExit);
+                        break;
+                    }
                     AppendLog(line);
+                }
+                if (selfUpdateExit != 0)
+                {
+                    StatusText.Text = $"SteamCMD self-update failed (exit {selfUpdateExit}).";
+                    AppendLog($"[setup] self-update exited with code {selfUpdateExit}.");
+                    return;
                 }
             }
             UpdateSteamCmdHint();
@@ -226,6 +245,8 @@ public partial class SetupWizardWindow : Window
         finally
         {
             RunSetupButton.IsEnabled = true;
+            _cts?.Dispose();
+            _cts = null;
         }
     }
 }
