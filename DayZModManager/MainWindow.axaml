@@ -952,7 +952,7 @@
                             <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
                                 <StackPanel>
                                     <TextBlock Text="// NOTIFICATIONS (WEBHOOK)" Classes="SectionLabel" Margin="0,0,0,6"/>
-                                    <TextBox x:Name="WebhookUrlTextBox" Watermark="Discord/generic webhook URL"/>
+                                    <TextBox x:Name="WebhookUrlTextBox" Watermark="Discord webhook URL"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                         <CheckBox x:Name="NotifyOnCrashCheckBox" Content="on crash"/>
                                         <CheckBox x:Name="NotifyOnRestartCheckBox" Content="on restart" Margin="14,0,0,0"/>

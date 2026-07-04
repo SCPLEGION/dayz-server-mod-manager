@@ -120,7 +120,7 @@ public sealed class ServerConfig
     [JsonPropertyName("managerModSourceDir")]
     public string? ManagerModSourceDir { get; set; }
 
-    // ---- Notifications (Discord / generic webhook) ----
+    // ---- Notifications (Discord-style webhook) ----
 
     [JsonPropertyName("webhookUrl")]
     public string? WebhookUrl { get; set; }

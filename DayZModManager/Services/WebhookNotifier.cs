@@ -7,8 +7,11 @@ using System.Threading.Tasks;
 namespace DayZModManager.Services;
 
 /// <summary>
-/// Fire-and-forget POST to a Discord (or any generic JSON) webhook. Failures are swallowed —
-/// a notification going missing must never affect server start/stop/restart/update flow.
+/// Fire-and-forget POST of a Discord-style payload (<c>{"content": message}</c>) to a webhook
+/// URL. Works with Discord's incoming webhooks and anything else that accepts that same shape;
+/// other webhook receivers (e.g. Slack's "text" field) would need payload translation, which
+/// this class does not do. Failures are swallowed — a notification going missing must never
+/// affect server start/stop/restart/update flow.
 /// </summary>
 internal static class WebhookNotifier
 {

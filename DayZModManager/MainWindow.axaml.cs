@@ -642,14 +642,23 @@ public partial class MainWindow : Window
     private static ulong ParseCollectionIdOrUrl(string raw)
     {
         raw = raw.Trim();
+
         var idxQuery = raw.IndexOf("?id=", StringComparison.OrdinalIgnoreCase);
         if (idxQuery >= 0)
         {
             var tail = raw[(idxQuery + 4)..];
             var ampIdx = tail.IndexOf('&');
             if (ampIdx >= 0) tail = tail[..ampIdx];
-            raw = tail;
+            return ModStorage.ParseWorkshopId(tail);
         }
+
+        // Covers path-shaped URLs without a query string, e.g.
+        // steamcommunity.com/sharedfiles/collection/<id> or .../collection/<id>/ -
+        // take the trailing run of digits.
+        var match = System.Text.RegularExpressions.Regex.Match(raw, @"(\d+)\D*$");
+        if (match.Success)
+            return ModStorage.ParseWorkshopId(match.Groups[1].Value);
+
         return ModStorage.ParseWorkshopId(raw);
     }
 
@@ -1383,10 +1392,10 @@ public partial class MainWindow : Window
         }
 
         profile.Name = name;
+        _suppressServerProfileSelection = true;
         // Force the ComboBox to re-render the bound Name.
         var idx = _serverProfiles.IndexOf(profile);
         if (idx >= 0) { _serverProfiles.RemoveAt(idx); _serverProfiles.Insert(idx, profile); }
-        _suppressServerProfileSelection = true;
         ServerProfileComboBox.SelectedItem = profile;
         _suppressServerProfileSelection = false;
         ServerProfileNameTextBox.Text = string.Empty;
