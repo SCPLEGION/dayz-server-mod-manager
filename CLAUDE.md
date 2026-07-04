@@ -20,6 +20,18 @@ pwsh ./scripts/build-and-pack.ps1 -SelfContained -SingleFile -Version 1.0.0
 
 There are no automated tests in this repository. CI (`.github/workflows/ci.yml`) only builds and packs — it does not run tests. The build target is `net8.0-windows` (WPF), so it only compiles and runs on Windows.
 
+## Releases & versioning
+
+`.github/workflows/auto-release.yml` tags every push to `main` with the next `vX.Y.Z` version (`scripts/compute-next-version.ps1`) and pushes the tag. That tag push triggers `ci.yml`, which builds, packs, and publishes a GitHub Release. The bump type is auto-detected from commit messages since the last tag (`feat:` → minor, `BREAKING CHANGE`/`!:` → major, anything else → patch), or can be forced via `workflow_dispatch`. Add `[skip release]` to any commit message in a push to `main` to skip auto-tagging that push (manual `workflow_dispatch` runs are unaffected by this marker).
+
+The version shape itself is the release channel:
+
+| Tag shape | Channel | `prerelease` flag |
+|---|---|---|
+| `vX.0.0` | Stable / main release | `false` |
+| `vX.Y.0` | Beta | `true` |
+| `vX.Y.Z` | Alpha (experimental — may or may not work) | `true` |
+
 ## Architecture
 
 ### Entry point and CLI dispatch
