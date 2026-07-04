@@ -38,7 +38,11 @@ internal static class BalanceSuggestionStore
             cmd.Parameters.AddWithValue("$tk", s.Target == SuggestionTarget.EventsXml ? "events" : "types");
             cmd.Parameters.AddWithValue("$en", (object?)s.EventName ?? DBNull.Value);
             cmd.ExecuteNonQuery();
-            ids.Add(conn.LastInsertRowId);
+
+            using var idCmd = conn.CreateCommand();
+            idCmd.Transaction = tx;
+            idCmd.CommandText = "SELECT last_insert_rowid()";
+            ids.Add((long)idCmd.ExecuteScalar()!);
         }
 
         tx.Commit();

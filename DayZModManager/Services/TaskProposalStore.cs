@@ -27,7 +27,10 @@ internal static class TaskProposalStore
         cmd.Parameters.AddWithValue("$tok", proposal.TokensUsed);
         cmd.Parameters.AddWithValue("$actions", JsonSerializer.Serialize(proposal.Actions, JsonOptions));
         cmd.ExecuteNonQuery();
-        return conn.LastInsertRowId;
+
+        using var idCmd = conn.CreateCommand();
+        idCmd.CommandText = "SELECT last_insert_rowid()";
+        return (long)idCmd.ExecuteScalar()!;
     }
 
     public static (TaskProposal? Proposal, DateTimeOffset? AppliedUtc) LoadById(long id)
