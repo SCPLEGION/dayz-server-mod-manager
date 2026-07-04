@@ -1022,6 +1022,46 @@ public partial class MainWindow : Window
         catch (Exception ex) { FolderDetailsTextBox.Text = $"Preview failed: {ex.Message}"; }
     }
 
+    /// <summary>Best-effort, non-blocking pre-deploy warning; never gates the actual deploy.</summary>
+    private void LogModConflictsIfAny()
+    {
+        try
+        {
+            var root = ModsRootTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return;
+
+            var entries = ModConflictDetector.DetectConflicts(root, GetSelectedMergeMode(), ReadExcludedXmlGenDirs());
+            if (entries.Count > 0)
+                AppendLogLine($"[manager] warning: {entries.Count} mod conflict(s) detected across types/events/spawnable presets — see MOD_FOLDERS > CHECK MOD CONFLICTS for details.");
+        }
+        catch
+        {
+            // Pre-deploy convenience check only; never block deploy on it.
+        }
+    }
+
+    private void OnCheckModConflicts(object? sender, RoutedEventArgs e) => _ = CheckModConflictsAsync();
+
+    private async Task CheckModConflictsAsync()
+    {
+        try
+        {
+            var root = ModsRootTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            {
+                FolderDetailsTextBox.Text = "Invalid mods root directory.";
+                return;
+            }
+
+            FolderDetailsTextBox.Text = "Checking for mod conflicts (types/events/spawnable presets)...";
+            var mergeMode = GetSelectedMergeMode();
+            var excluded = ReadExcludedXmlGenDirs();
+            var entries = await Task.Run(() => ModConflictDetector.DetectConflicts(root, mergeMode, excluded));
+            FolderDetailsTextBox.Text = ModConflictDetector.FormatReport(entries);
+        }
+        catch (Exception ex) { FolderDetailsTextBox.Text = $"Conflict check failed: {ex.Message}"; }
+    }
+
     private static string FormatStats(XmlMergeStats stats)
     {
         var sb = new StringBuilder();
@@ -1909,6 +1949,8 @@ public partial class MainWindow : Window
         var empty = (new List<string>(), new List<string>());
         if (string.IsNullOrWhiteSpace(cfg.ServerRootDir)) { AppendLogLine("[manager] server root dir not set — skipping deploy."); return empty; }
         if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath)) { AppendLogLine("[manager] steamcmd.exe path not set — skipping deploy."); return empty; }
+
+        LogModConflictsIfAny();
 
         string workshopRoot;
         try { workshopRoot = SteamCmdInstallRoot(cfg); }
