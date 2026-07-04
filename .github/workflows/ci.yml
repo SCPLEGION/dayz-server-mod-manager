@@ -127,9 +127,34 @@ jobs:
       - name: Show downloaded files
         run: find artifacts -type f -printf '%p\n'
 
+      - name: Determine release channel
+        id: channel
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+              throw "Tag '$tag' is not a vX.Y.Z semantic version"
+          }
+          $minor = [int]$Matches[2]
+          $patch = [int]$Matches[3]
+
+          # vX.0.0 -> stable, vX.Y.0 -> beta, vX.Y.Z -> alpha (experimental)
+          if ($minor -eq 0 -and $patch -eq 0) {
+              $prerelease = 'false'; $label = 'Stable'
+          } elseif ($patch -eq 0) {
+              $prerelease = 'true'; $label = 'Beta'
+          } else {
+              $prerelease = 'true'; $label = 'Alpha (experimental - may or may not work)'
+          }
+
+          "prerelease=$prerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "name=$tag ($label)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.channel.outputs.name }}
+          prerelease: ${{ steps.channel.outputs.prerelease }}
           files: artifacts/**/*.zip
           generate_release_notes: true
           fail_on_unmatched_files: true

@@ -1,0 +1,56 @@
+name: Auto Release
+
+# Automatically tags every push to main with the next semantic version and
+# pushes that tag, which in turn triggers the build + GitHub Release steps
+# in ci.yml (it already runs on `v*` tag pushes).
+#
+# Versioning scheme (see scripts/compute-next-version.ps1):
+#   vX.0.0  -> stable / main release
+#   vX.Y.0  -> minor release, published as a beta prerelease
+#   vX.Y.Z  -> patch release, published as an alpha prerelease (experimental)
+#
+# The bump type is auto-detected from commit messages since the last tag
+# (feat: -> minor, BREAKING CHANGE/!: -> major, anything else -> patch), or
+# can be forced via workflow_dispatch.
+#
+# Add "[skip release]" to a commit message on main to skip tagging it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        type: choice
+        options: [auto, major, minor, patch]
+        default: auto
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Compute next version and tag
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: ver
+        shell: pwsh
+        run: ./scripts/compute-next-version.ps1 -Bump '${{ inputs.bump || 'auto' }}'
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.ver.outputs.version }}" -m "${{ steps.ver.outputs.channel }} release ${{ steps.ver.outputs.version }}"
+          git push origin "${{ steps.ver.outputs.version }}"
