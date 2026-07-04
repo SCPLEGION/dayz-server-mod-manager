@@ -27,4 +27,12 @@ public class AiBalancerConfig
     /// An external AI client can only apply changes once the user opts in here.
     /// </summary>
     public bool McpApplyEnabled { get; set; }
+
+    // ---- Scheduled/automatic runs (only while this app's GUI process is alive) ----
+
+    public bool ScheduleEnabled { get; set; }
+    public int ScheduleIntervalMinutes { get; set; } = 60;
+    public bool AutoApplyEnabled { get; set; }
+    /// <summary>Auto-apply only touches suggestions whose |delta| stays within this percent of the old value.</summary>
+    public double AutoApplyMaxDeltaPercent { get; set; } = 20;
 }

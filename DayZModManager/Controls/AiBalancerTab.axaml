@@ -284,6 +284,19 @@
                             <Button x:Name="BtnCancelBalancer" Content="Cancel" Width="100" Height="32" Margin="8,0,0,0" Click="OnCancelBalancerClick" IsEnabled="False"/>
                         </StackPanel>
 
+                        <TextBlock Text="// SCHEDULE (WHILE APP IS RUNNING)" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" Margin="0,4,0,4"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <CheckBox x:Name="ScheduleEnabledCheck" Content="run automatically every"/>
+                            <TextBox x:Name="ScheduleIntervalTextBox" Width="60" Text="60" Margin="6,0,0,0"/>
+                            <TextBlock Text="minutes" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <CheckBox x:Name="AutoApplyEnabledCheck" Content="auto-apply suggestions within"/>
+                            <TextBox x:Name="AutoApplyMaxDeltaTextBox" Width="60" Text="20" Margin="6,0,0,0"/>
+                            <TextBlock Text="% of the old value" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                        </StackPanel>
+                        <TextBlock x:Name="ScheduleStatusText" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,0,0,8" Text="Scheduled runs: off"/>
+
                         <StackPanel x:Name="ProgressPanel" IsVisible="False" Margin="0,4,0,0">
                             <ProgressBar x:Name="OverallProgress" Height="14" Minimum="0" Maximum="100" Value="0" Margin="0,0,0,4"/>
                             <TextBlock x:Name="ProgressStatusText" Foreground="{StaticResource Text}" FontSize="11" Text="Idle"/>
