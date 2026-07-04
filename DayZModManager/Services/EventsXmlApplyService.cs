@@ -8,16 +8,21 @@ using DayZModManager.Models;
 
 namespace DayZModManager.Services;
 
-/// <summary>Applies approved BalanceSuggestions to a types.xml file, preserving structure.</summary>
-public class XmlApplyService
+/// <summary>
+/// Applies approved BalanceSuggestions targeting events.xml (zombie/animal spawn nominal/min/
+/// max/lifetime). Structurally different from types.xml: nominal/min/max/lifetime live on the
+/// &lt;event name="..."&gt; element itself, not per child class, so suggestions are looked up by
+/// <see cref="BalanceSuggestion.EventName"/> rather than <see cref="BalanceSuggestion.ClassName"/>.
+/// </summary>
+public class EventsXmlApplyService
 {
-    public ApplyResult Apply(IEnumerable<BalanceSuggestion> approved, string typesXmlPath, bool backup)
+    public ApplyResult Apply(IEnumerable<BalanceSuggestion> approved, string eventsXmlPath, bool backup)
     {
         var result = new ApplyResult();
 
-        if (!File.Exists(typesXmlPath))
+        if (!File.Exists(eventsXmlPath))
         {
-            result.Errors.Add($"types.xml not found: {typesXmlPath}");
+            result.Errors.Add($"events.xml not found: {eventsXmlPath}");
             return result;
         }
 
@@ -26,8 +31,8 @@ public class XmlApplyService
             try
             {
                 var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-                var backupPath = $"{typesXmlPath}.backup.{stamp}";
-                File.Copy(typesXmlPath, backupPath, overwrite: false);
+                var backupPath = $"{eventsXmlPath}.backup.{stamp}";
+                File.Copy(eventsXmlPath, backupPath, overwrite: false);
                 result.BackupPath = backupPath;
             }
             catch (Exception ex)
@@ -40,7 +45,7 @@ public class XmlApplyService
         XDocument doc;
         try
         {
-            doc = XDocument.Load(typesXmlPath, LoadOptions.PreserveWhitespace);
+            doc = XDocument.Load(eventsXmlPath, LoadOptions.PreserveWhitespace);
         }
         catch (Exception ex)
         {
@@ -55,8 +60,8 @@ public class XmlApplyService
             return result;
         }
 
-        // Index <type name="..."> elements once for O(1) lookup.
-        var index = root.Elements("type")
+        // Index <event name="..."> elements once for O(1) lookup.
+        var index = root.Elements("event")
             .Where(e => e.Attribute("name") != null)
             .GroupBy(e => e.Attribute("name")!.Value, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
@@ -64,8 +69,15 @@ public class XmlApplyService
         foreach (var sug in approved)
         {
             if (sug == null || !sug.IsApproved || sug.Changes.Count == 0) continue;
-            if (sug.Target != SuggestionTarget.TypesXml) continue; // events.xml handled by EventsXmlApplyService
-            if (!index.TryGetValue(sug.ClassName, out var typeEl))
+            if (sug.Target != SuggestionTarget.EventsXml) continue; // types.xml handled by XmlApplyService
+
+            if (string.IsNullOrWhiteSpace(sug.EventName))
+            {
+                result.Errors.Add($"{sug.ClassName}: no event name recorded, cannot apply to events.xml.");
+                continue;
+            }
+
+            if (!index.TryGetValue(sug.EventName, out var eventEl))
             {
                 result.NotFound++;
                 continue;
@@ -74,18 +86,18 @@ public class XmlApplyService
             try
             {
                 foreach (var kv in sug.Changes)
-                    SetChildIntValue(typeEl, kv.Key, kv.Value.NewValue);
+                    SetChildIntValue(eventEl, kv.Key, kv.Value.NewValue);
                 result.Applied++;
             }
             catch (Exception ex)
             {
-                result.Errors.Add($"{sug.ClassName}: {ex.Message}");
+                result.Errors.Add($"{sug.EventName}: {ex.Message}");
             }
         }
 
         try
         {
-            doc.Save(typesXmlPath, SaveOptions.DisableFormatting);
+            doc.Save(eventsXmlPath, SaveOptions.DisableFormatting);
         }
         catch (Exception ex)
         {
@@ -95,13 +107,13 @@ public class XmlApplyService
         return result;
     }
 
-    private static void SetChildIntValue(XElement typeEl, string childName, int value)
+    private static void SetChildIntValue(XElement eventEl, string childName, int value)
     {
-        var child = typeEl.Element(childName);
+        var child = eventEl.Element(childName);
         if (child == null)
         {
             child = new XElement(childName);
-            typeEl.Add(child);
+            eventEl.Add(child);
         }
         child.SetValue(value.ToString(CultureInfo.InvariantCulture));
     }

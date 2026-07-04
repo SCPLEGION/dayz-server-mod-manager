@@ -171,9 +171,12 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="6"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <Button Grid.Column="0" Classes="BtnGreen" Content="⟳ REFRESH" Click="OnRefreshLocal"/>
-                                <Button Grid.Column="2" Classes="BtnRed"   Content="✕ REMOVE"  Click="OnRemoveSelected"/>
+                                <Button Grid.Column="2" Content="⇪ CHECK UPDATES" Click="OnCheckModUpdates"/>
+                                <Button Grid.Column="4" Classes="BtnRed"   Content="✕ REMOVE"  Click="OnRemoveSelected"/>
                             </Grid>
                         </StackPanel>
 
@@ -410,6 +413,11 @@
                             <Button Classes="BtnGreen" Content="⊕ ADD BULK TO MODS.TXT"
                                     Click="OnAddBulk" Margin="0,8,0,4" HorizontalAlignment="Stretch"/>
 
+                            <TextBlock Text="// IMPORT WORKSHOP COLLECTION" Classes="SectionLabel" Margin="0,8,0,6"/>
+                            <TextBox x:Name="CollectionIdTextBox" Watermark="Collection ID or URL"/>
+                            <Button Classes="BtnGreen" Content="⊕ IMPORT COLLECTION"
+                                    Click="OnImportCollection" Margin="0,8,0,4" HorizontalAlignment="Stretch"/>
+
                             <TextBlock Text="// LOOKUP" Classes="SectionLabel" Margin="0,8,0,6"/>
                             <CheckBox x:Name="ModsLookupCheckBox" Content="lookup titles in mods.txt"/>
                             <TextBox x:Name="ModsApiKeyTextBox" Margin="0,6,0,0"/>
@@ -568,6 +576,9 @@
                                         Click="OnGenerateCombinedTypes" Margin="0,10,0,0"/>
                                 <Button Content="◑ PREVIEW (DRY-RUN)"
                                         Click="OnPreviewCombinedTypes" Margin="0,6,0,0"/>
+                                <Button Content="⚠ CHECK MOD CONFLICTS"
+                                        Click="OnCheckModConflicts" Margin="0,6,0,0"
+                                        ToolTip.Tip="Scans types/events/spawnable presets across all mods for colliding entries."/>
                             </StackPanel>
                             </ScrollViewer>
 
@@ -660,6 +671,30 @@
                                 </StackPanel>
                             </Border>
                         </DockPanel>
+                    </Border>
+
+                    <Border DockPanel.Dock="Top"
+                            Background="{StaticResource Bg1}"
+                            BorderBrush="{StaticResource Line}"
+                            BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="PROFILE:" Foreground="{StaticResource Muted}"
+                                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <ComboBox x:Name="ServerProfileComboBox" Width="180"
+                                      SelectionChanged="OnServerProfileSelectionChanged">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBox x:Name="ServerProfileNameTextBox" Width="140" Margin="10,0,0,0"
+                                     Watermark="profile name"/>
+                            <Button Content="⊕ NEW" Width="80" Margin="6,0,0,0" Click="OnAddServerProfile"/>
+                            <Button Content="✎ RENAME" Width="90" Margin="6,0,0,0" Click="OnRenameServerProfile"/>
+                            <Button Classes="BtnRed" Content="🗑 DELETE" Width="90" Margin="6,0,0,0" Click="OnDeleteServerProfile"/>
+                        </StackPanel>
                     </Border>
 
                     <Border DockPanel.Dock="Top"
@@ -917,10 +952,128 @@
                                 </StackPanel>
                             </Border>
 
+                            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="// SCHEDULING (WHILE APP IS RUNNING)" Classes="SectionLabel" Margin="0,0,0,6"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="70"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="ScheduledRestartCheckBox" Content="restart daily at"/>
+                                        <TextBox Grid.Column="2" x:Name="ScheduledRestartTimeTextBox" Text="04:00" Width="70"/>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="ScheduledUpdateCheckCheckBox" Content="check mods for updates every"/>
+                                        <TextBox Grid.Column="2" x:Name="ScheduledUpdateIntervalTextBox" Text="6" Width="60"/>
+                                        <TextBlock Grid.Column="4" Text="hours" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="// NOTIFICATIONS (WEBHOOK)" Classes="SectionLabel" Margin="0,0,0,6"/>
+                                    <TextBox x:Name="WebhookUrlTextBox" Watermark="Discord webhook URL"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <CheckBox x:Name="NotifyOnCrashCheckBox" Content="on crash"/>
+                                        <CheckBox x:Name="NotifyOnRestartCheckBox" Content="on restart" Margin="14,0,0,0"/>
+                                        <CheckBox x:Name="NotifyOnModUpdateCheckBox" Content="on mod update" Margin="14,0,0,0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="// RCON (BATTLEYE ADMIN CONSOLE)" Classes="SectionLabel" Margin="0,0,0,6"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="RconEnabledCheckBox" Content="enabled"/>
+                                        <TextBlock Grid.Column="2" Text="port:" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBox Grid.Column="3" x:Name="RconPortTextBox" Text="2306"/>
+                                        <TextBlock Grid.Column="5" Text="password:" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBox Grid.Column="6" x:Name="RconPasswordTextBox" PasswordChar="•"/>
+                                    </Grid>
+                                    <TextBlock Text="Syncs BEServer_x64.cfg's RConPassword/RConPort before each start/restart. Connect below once the server is running."
+                                               Foreground="{StaticResource Muted}" FontSize="10" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
                             <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0">
                                 <Button Classes="BtnGreen" Content="💾 SAVE SERVER SETTINGS"
                                         HorizontalAlignment="Left" Width="220" Click="OnSaveSettings"/>
                             </Border>
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander DockPanel.Dock="Top" Header="// RCON ADMIN CONSOLE" IsExpanded="False"
+                              Foreground="{StaticResource Muted}" Margin="12,8,12,0">
+                        <StackPanel Margin="0,8,0,8">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="RconConnectButton" Content="🔌 CONNECT" Width="120" Click="OnRconConnect"/>
+                                <Button x:Name="RconDisconnectButton" Content="DISCONNECT" Width="120" Margin="6,0,0,0"
+                                        Click="OnRconDisconnect" IsEnabled="False"/>
+                                <Button Content="PLAYERS" Width="90" Margin="6,0,0,0" Click="OnRconPlayers"/>
+                                <Button Content="BANS" Width="90" Margin="6,0,0,0" Click="OnRconBans"/>
+                                <TextBlock x:Name="RconStatusText" Foreground="{StaticResource Muted}" FontSize="10"
+                                           VerticalAlignment="Center" Margin="14,0,0,0" Text="rcon: disconnected"/>
+                            </StackPanel>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" x:Name="RconBroadcastTextBox" Watermark="broadcast message"/>
+                                <Button Grid.Column="2" Content="📢 SEND" Click="OnRconBroadcast"/>
+                            </Grid>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox Grid.Column="0" x:Name="RconPlayerIdTextBox" Watermark="id"/>
+                                <TextBox Grid.Column="2" x:Name="RconBanMinutesTextBox" Watermark="ban min (0=perm)"/>
+                                <TextBox Grid.Column="4" x:Name="RconReasonTextBox" Watermark="reason"/>
+                                <Button Grid.Column="6" Content="KICK" Click="OnRconKick"/>
+                                <Button Grid.Column="8" Classes="BtnRed" Content="BAN" Click="OnRconBan"/>
+                            </Grid>
+
+                            <TextBox x:Name="RconOutputTextBox" Height="140" Margin="0,8,0,0" IsReadOnly="True"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     Background="{StaticResource Bg2}" Foreground="{StaticResource Sub}"
+                                     FontFamily="{StaticResource MonoFont}" FontSize="11"/>
                         </StackPanel>
                     </Expander>
 

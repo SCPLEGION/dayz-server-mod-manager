@@ -178,6 +178,8 @@
                             <Button Grid.Column="3" Content="Discover files" Margin="6,0,0,0" Click="OnDiscoverServerFiles"/>
                         </Grid>
                         <TextBlock x:Name="ServerFilesSummaryText" Foreground="{StaticResource Muted}" FontSize="11" Margin="140,2,0,0" Text="No server scanned yet."/>
+                        <CheckBox x:Name="McpApplyEnabledCheck" Margin="0,10,0,0"
+                                  Content="Allow MCP clients (e.g. Claude Desktop) to apply balance/task changes, not just propose them"/>
                         <Button Content="Save settings" Width="140" HorizontalAlignment="Left" Margin="0,10,0,0" Click="OnSaveAiSettings"/>
                     </StackPanel>
                 </Border>
@@ -282,6 +284,19 @@
                             <Button x:Name="BtnCancelBalancer" Content="Cancel" Width="100" Height="32" Margin="8,0,0,0" Click="OnCancelBalancerClick" IsEnabled="False"/>
                         </StackPanel>
 
+                        <TextBlock Text="// SCHEDULE (WHILE APP IS RUNNING)" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="Bold" Margin="0,4,0,4"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <CheckBox x:Name="ScheduleEnabledCheck" Content="run automatically every"/>
+                            <TextBox x:Name="ScheduleIntervalTextBox" Width="60" Text="60" Margin="6,0,0,0"/>
+                            <TextBlock Text="minutes" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <CheckBox x:Name="AutoApplyEnabledCheck" Content="auto-apply suggestions within"/>
+                            <TextBox x:Name="AutoApplyMaxDeltaTextBox" Width="60" Text="20" Margin="6,0,0,0"/>
+                            <TextBlock Text="% of the old value" Foreground="{StaticResource Muted}" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                        </StackPanel>
+                        <TextBlock x:Name="ScheduleStatusText" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,0,0,8" Text="Scheduled runs: off"/>
+
                         <StackPanel x:Name="ProgressPanel" IsVisible="False" Margin="0,4,0,0">
                             <ProgressBar x:Name="OverallProgress" Height="14" Minimum="0" Maximum="100" Value="0" Margin="0,0,0,4"/>
                             <TextBlock x:Name="ProgressStatusText" Foreground="{StaticResource Text}" FontSize="11" Text="Idle"/>
@@ -355,6 +370,7 @@
                             <DataGrid.Columns>
                                 <DataGridCheckBoxColumn Header="OK" Binding="{Binding IsApproved}" Width="40"/>
                                 <DataGridTextColumn Header="ClassName" Binding="{Binding ClassName}" IsReadOnly="True" Width="220"/>
+                                <DataGridTextColumn Header="Target" Binding="{Binding TargetLabel}" IsReadOnly="True" Width="80"/>
                                 <DataGridTextColumn Header="Category" Binding="{Binding Category}" IsReadOnly="True" Width="100"/>
                                 <DataGridTextColumn Header="Field" Binding="{Binding Field}" IsReadOnly="True" Width="80"/>
                                 <DataGridTextColumn Header="Old" Binding="{Binding OldValue}" IsReadOnly="True" Width="70"/>

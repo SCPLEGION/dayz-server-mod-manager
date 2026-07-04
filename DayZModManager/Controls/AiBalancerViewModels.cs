@@ -50,6 +50,11 @@ public class SuggestionRowViewModel : INotifyPropertyChanged
     /// <summary>Back-pointer to source suggestion so apply step can map back.</summary>
     public DayZModManager.Models.BalanceSuggestion? Source { get; set; }
 
+    public DayZModManager.Models.SuggestionTarget Target =>
+        Source?.Target ?? DayZModManager.Models.SuggestionTarget.TypesXml;
+
+    public string TargetLabel => Target == DayZModManager.Models.SuggestionTarget.EventsXml ? "events.xml" : "types.xml";
+
     public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

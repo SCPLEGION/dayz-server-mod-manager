@@ -174,7 +174,7 @@ public static class McpServerCli
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
 
         Tool("propose_balance",
-            "Run the AI economy balancer on the latest snapshot and return its suggestions.",
+            "Run the AI economy balancer on the latest snapshot and return its suggestions. Suggestions are persisted so apply_balance can apply them by id in a later call.",
             new JsonObject
             {
                 ["type"] = "object",
@@ -183,6 +183,43 @@ public static class McpServerCli
                     ["model"] = new JsonObject { ["type"] = "string" },
                     ["concurrency"] = new JsonObject { ["type"] = "integer" },
                     ["batch_size"] = new JsonObject { ["type"] = "integer" },
+                },
+            }),
+
+        Tool("apply_balance",
+            "Write approved balance suggestions (from propose_balance) to types.xml/events.xml. Disabled unless the user enabled 'Allow MCP clients to apply' in the GUI's AI Balancer settings.",
+            new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["ids"] = new JsonObject { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "integer" }, ["description"] = "Suggestion ids returned by propose_balance." },
+                    ["apply_all_pending"] = new JsonObject { ["type"] = "boolean", ["description"] = "Apply every not-yet-applied suggestion instead of passing ids explicitly." },
+                },
+            }),
+
+        Tool("plan_task",
+            "Natural-language -> structured task plan (cfg_set/xml_set_value/text_replace/run_balance actions) over the discovered server files. Persisted so apply_task can apply it by id in a later call.",
+            new JsonObject
+            {
+                ["type"] = "object",
+                ["required"] = new JsonArray { "request" },
+                ["properties"] = new JsonObject
+                {
+                    ["request"] = new JsonObject { ["type"] = "string", ["description"] = "What you want changed, in plain English." },
+                    ["model"] = new JsonObject { ["type"] = "string" },
+                },
+            }),
+
+        Tool("apply_task",
+            "Apply a previously planned task (from plan_task) by id. Disabled unless the user enabled 'Allow MCP clients to apply' in the GUI's AI Balancer settings.",
+            new JsonObject
+            {
+                ["type"] = "object",
+                ["required"] = new JsonArray { "id" },
+                ["properties"] = new JsonObject
+                {
+                    ["id"] = new JsonObject { ["type"] = "integer" },
                 },
             }),
 
@@ -216,6 +253,9 @@ public static class McpServerCli
                 "cfg_set"             => ToolResult(CfgSet(argsNode)),
                 "get_latest_snapshot" => ToolResult(GetLatestSnapshot()),
                 "propose_balance"     => ToolResult(ProposeBalance(argsNode)),
+                "apply_balance"       => ToolResult(ApplyBalance(argsNode)),
+                "plan_task"           => ToolResult(PlanTask(argsNode)),
+                "apply_task"          => ToolResult(ApplyTask(argsNode)),
                 "get_config"          => ToolResult(GetConfig()),
                 _ => ToolResult($"Unknown tool: {name}", isError: true),
             };
@@ -366,17 +406,161 @@ public static class McpServerCli
         var ai = new AiBalancerService();
         var run = ai.RunAsync(snap, new List<EconomySnapshot> { snap }, opts, null, CancellationToken.None)
             .GetAwaiter().GetResult();
+
+        // Persist so a later apply_balance call (a separate JSON-RPC turn) can look these up by id.
+        var ids = BalanceSuggestionStore.Insert(run.Suggestions);
+
+        var suggestionsOut = new List<object>();
+        for (var i = 0; i < run.Suggestions.Count; i++)
+        {
+            var s = run.Suggestions[i];
+            suggestionsOut.Add(new
+            {
+                id = ids[i],
+                s.ClassName,
+                s.Category,
+                reason = s.AiReason,
+                target = s.Target == SuggestionTarget.EventsXml ? "events" : "types",
+                eventName = s.EventName,
+                changes = s.Changes.ToDictionary(kv => kv.Key, kv => new { kv.Value.OldValue, kv.Value.NewValue }),
+            });
+        }
+
         return new
         {
             tokensUsed = run.TotalTokensUsed,
             errors = run.TotalErrors,
-            suggestions = run.Suggestions.Select(s => new
+            suggestions = suggestionsOut,
+        };
+    }
+
+    private static object ApplyBalance(JsonObject args)
+    {
+        var cfg = LoadCfg();
+        if (!cfg.McpApplyEnabled)
+            return new { error = "MCP apply is disabled. Enable 'Allow MCP clients to apply...' in the GUI's AI Balancer settings first." };
+
+        List<long> ids;
+        if (args["ids"] is JsonArray idsArr)
+            ids = idsArr.Where(n => n != null).Select(n => n!.GetValue<long>()).ToList();
+        else if (args["apply_all_pending"]?.GetValue<bool>() == true)
+            ids = BalanceSuggestionStore.LoadAllNotAppliedIds();
+        else
+            return new { error = "Provide 'ids' (suggestion ids from propose_balance) or 'apply_all_pending': true." };
+
+        if (ids.Count == 0) return new { error = "No suggestion ids to apply." };
+
+        var stored = BalanceSuggestionStore.LoadByIds(ids);
+        var typesToApply = stored.Where(s => s.Suggestion.Target == SuggestionTarget.TypesXml && s.AppliedUtc == null).ToList();
+        var eventsToApply = stored.Where(s => s.Suggestion.Target == SuggestionTarget.EventsXml && s.AppliedUtc == null).ToList();
+
+        var applied = 0;
+        var notFound = 0;
+        var errors = new List<string>();
+        var backups = new List<string>();
+        var appliedIds = new List<long>();
+
+        if (typesToApply.Count > 0)
+        {
+            if (string.IsNullOrWhiteSpace(cfg.TypesXmlPath) || !File.Exists(cfg.TypesXmlPath))
             {
-                s.ClassName,
-                s.Category,
-                reason = s.AiReason,
-                changes = s.Changes.ToDictionary(kv => kv.Key, kv => new { kv.Value.OldValue, kv.Value.NewValue }),
+                errors.Add("types.xml path not configured/found - set it in GUI Settings.");
+            }
+            else
+            {
+                var r = new XmlApplyService().Apply(typesToApply.Select(s => s.Suggestion), cfg.TypesXmlPath, cfg.BackupBeforeApply);
+                applied += r.Applied; notFound += r.NotFound; errors.AddRange(r.Errors);
+                if (!string.IsNullOrEmpty(r.BackupPath)) backups.Add(r.BackupPath);
+                appliedIds.AddRange(typesToApply.Select(s => s.Id));
+            }
+        }
+
+        if (eventsToApply.Count > 0)
+        {
+            if (string.IsNullOrWhiteSpace(cfg.EventsXmlPath) || !File.Exists(cfg.EventsXmlPath))
+            {
+                errors.Add("events.xml path not configured/found - set it in GUI Settings.");
+            }
+            else
+            {
+                var r = new EventsXmlApplyService().Apply(eventsToApply.Select(s => s.Suggestion), cfg.EventsXmlPath, cfg.BackupBeforeApply);
+                applied += r.Applied; notFound += r.NotFound; errors.AddRange(r.Errors);
+                if (!string.IsNullOrEmpty(r.BackupPath)) backups.Add(r.BackupPath);
+                appliedIds.AddRange(eventsToApply.Select(s => s.Id));
+            }
+        }
+
+        // Marks every suggestion the apply services were handed as applied, same aggregate-only
+        // granularity the GUI's apply button already has (ApplyResult has no per-suggestion status).
+        if (appliedIds.Count > 0) BalanceSuggestionStore.MarkApplied(appliedIds);
+
+        return new { applied, notFound, errors, backups, appliedIds };
+    }
+
+    private static object PlanTask(JsonObject args)
+    {
+        var cfg = LoadCfg();
+        var apiKey = ApiKeyProtection.Unprotect(cfg.OpenAiApiKeyEncrypted);
+        if (string.IsNullOrWhiteSpace(apiKey)) return new { error = "OpenAI API key not configured in GUI Settings." };
+
+        var request = args["request"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(request))
+            return new { error = "Provide 'request' (natural-language description of the change)." };
+
+        var snap = Sf.Discover(cfg.ServerRootPath, cfg.MissionPath);
+        var opts = new AiTaskOptions
+        {
+            ApiKey = apiKey,
+            Model = args["model"]?.GetValue<string>() ?? cfg.OpenAiModel,
+            ServerType = cfg.ServerType,
+        };
+
+        var ai = new AiTaskService();
+        var proposal = ai.ProposeAsync(request, snap, opts, null, CancellationToken.None).GetAwaiter().GetResult();
+        var id = TaskProposalStore.Insert(proposal);
+
+        return new
+        {
+            id,
+            proposal.Title,
+            proposal.Notes,
+            proposal.TokensUsed,
+            actions = proposal.Actions.Select(a => new
+            {
+                kind = a.Kind.ToString(),
+                a.TargetFile,
+                a.Key,
+                a.XPath,
+                a.OldValue,
+                a.NewValue,
+                a.Reason,
             }),
+        };
+    }
+
+    private static object ApplyTask(JsonObject args)
+    {
+        var cfg = LoadCfg();
+        if (!cfg.McpApplyEnabled)
+            return new { error = "MCP apply is disabled. Enable 'Allow MCP clients to apply...' in the GUI's AI Balancer settings first." };
+
+        if (args["id"] is not JsonNode idNode)
+            return new { error = "Provide 'id' (task proposal id from plan_task)." };
+        var id = idNode.GetValue<long>();
+
+        var (proposal, appliedUtc) = TaskProposalStore.LoadById(id);
+        if (proposal == null) return new { error = $"No task proposal with id {id}." };
+        if (appliedUtc != null) return new { error = $"Task proposal {id} was already applied at {appliedUtc:O}." };
+
+        var result = new TaskApplyService().Apply(proposal, cfg.BackupBeforeApply);
+        TaskProposalStore.MarkApplied(id);
+
+        return new
+        {
+            applied = result.Applied,
+            skipped = result.Skipped,
+            errors = result.Errors,
+            backupPaths = result.BackupPaths,
         };
     }
 
@@ -397,6 +581,7 @@ public static class McpServerCli
             cfg.GlobalsXmlPath,
             cfg.SpawnableTypesXmlPath,
             cfg.BackupBeforeApply,
+            cfg.McpApplyEnabled,
             hasApiKey = !string.IsNullOrEmpty(cfg.OpenAiApiKeyEncrypted),
         };
     }

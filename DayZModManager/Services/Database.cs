@@ -111,9 +111,16 @@ internal static class Database
                 changes_json  TEXT NOT NULL,
                 ai_reason     TEXT NULL,
                 approved      INTEGER NOT NULL DEFAULT 1,
-                applied_utc   TEXT NULL
+                applied_utc   TEXT NULL,
+                target_kind   TEXT NOT NULL DEFAULT 'types',
+                event_name    TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_balance_suggestions_created ON balance_suggestions(created_utc DESC);
+
+            CREATE TABLE IF NOT EXISTS mod_deploy_state (
+                workshop_id         INTEGER PRIMARY KEY,
+                deployed_time_unix  INTEGER NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS task_proposals (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,

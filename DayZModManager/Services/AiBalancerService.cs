@@ -30,6 +30,11 @@ public class AiBalancerRunResult
     public int TotalErrors { get; set; }
 }
 
+/// <summary>One zombie or animal spawn group's current live snapshot, used as AI prompt input.</summary>
+internal sealed record SpawnGroupInput(
+    string Kind, string ClassName, string EventName,
+    int Alive, int Nominal, int Min, int Max, int Lifetime);
+
 public sealed class AiBalancerService
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(2) };
@@ -140,7 +145,198 @@ public sealed class AiBalancerService
         }
 
         await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        var spawnInputs = BuildSpawnGroupInputs(snapshot);
+        if (spawnInputs.Count > 0)
+        {
+            try
+            {
+                var (spawnItems, spawnTokens) = await CallOpenAiForSpawnGroupsAsync(spawnInputs, options, cancel)
+                    .ConfigureAwait(false);
+                result.TotalTokensUsed += spawnTokens;
+
+                foreach (var ai in spawnItems)
+                {
+                    var src = spawnInputs.FirstOrDefault(s =>
+                        string.Equals(s.ClassName, ai.ClassName, StringComparison.OrdinalIgnoreCase));
+                    if (src == null || string.IsNullOrEmpty(src.EventName)) continue;
+
+                    var sug = new BalanceSuggestion
+                    {
+                        ClassName = src.ClassName,
+                        Category = src.Kind,
+                        AiReason = ai.Reason,
+                        Target = SuggestionTarget.EventsXml,
+                        EventName = src.EventName,
+                    };
+                    AddChange(sug, "nominal", src.Nominal, ai.Nominal);
+                    AddChange(sug, "min", src.Min, ai.Min);
+                    AddChange(sug, "max", src.Max, ai.Max);
+                    AddChange(sug, "lifetime", src.Lifetime, ai.Lifetime);
+
+                    if (sug.Changes.Count > 0)
+                        result.Suggestions.Add(sug);
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception)
+            {
+                result.TotalErrors++;
+            }
+        }
+
         return result;
+    }
+
+    private static List<SpawnGroupInput> BuildSpawnGroupInputs(EconomySnapshot snapshot)
+    {
+        var list = new List<SpawnGroupInput>();
+
+        if (snapshot.Zombies?.TypeBreakdown != null)
+            foreach (var z in snapshot.Zombies.TypeBreakdown)
+                if (!string.IsNullOrEmpty(z.ClassName))
+                    list.Add(new SpawnGroupInput("zombie", z.ClassName, z.EventName, z.Alive, z.Nominal, z.Min, z.Max, z.Lifetime));
+
+        if (snapshot.Animals?.TypeBreakdown != null)
+            foreach (var a in snapshot.Animals.TypeBreakdown)
+                if (!string.IsNullOrEmpty(a.ClassName))
+                    list.Add(new SpawnGroupInput("animal", a.ClassName, a.EventName, a.Alive, a.Nominal, a.Min, a.Max, a.Lifetime));
+
+        return list;
+    }
+
+    private async Task<(List<AiSpawnGroupItem> items, int tokens)> CallOpenAiForSpawnGroupsAsync(
+        List<SpawnGroupInput> inputs, AiBalancerOptions options, CancellationToken cancel)
+    {
+        var systemPrompt = BuildSpawnGroupSystemPrompt(options.ServerType);
+        var userPayload = JsonSerializer.Serialize(new
+        {
+            groups = inputs.Select(i => new
+            {
+                kind = i.Kind,
+                className = i.ClassName,
+                eventName = i.EventName,
+                current = new { alive = i.Alive, nominal = i.Nominal, min = i.Min, max = i.Max, lifetime = i.Lifetime },
+            })
+        }, JsonOptions);
+
+        var requestBody = new
+        {
+            model = options.Model,
+            messages = new object[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userPayload },
+            },
+            response_format = new { type = "json_object" },
+        };
+
+        var bodyJson = JsonSerializer.Serialize(requestBody, JsonOptions);
+
+        var attempts = 0;
+        while (true)
+        {
+            attempts++;
+            using var req = new HttpRequestMessage(HttpMethod.Post, options.Endpoint);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+            req.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
+
+            using var resp = await Http.SendAsync(req, cancel).ConfigureAwait(false);
+            var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if ((int)resp.StatusCode == 429 && attempts < 4)
+            {
+                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempts));
+                await Task.Delay(delay, cancel).ConfigureAwait(false);
+                continue;
+            }
+            if (!resp.IsSuccessStatusCode)
+                throw new InvalidOperationException($"OpenAI HTTP {(int)resp.StatusCode}: {Trunc(text, 240)}");
+
+            return ParseSpawnGroupResponse(text);
+        }
+    }
+
+    private static string BuildSpawnGroupSystemPrompt(string serverType) => $@"You are an expert DayZ server economy balancer, focused on zombie and animal spawn events (events.xml).
+Server type: {serverType}
+
+Analyze each spawn group's current alive count vs its configured nominal/min/max, and suggest adjustments.
+
+RULES:
+- alive/nominal ratio consistently near or above 1.0: consider raising nominal/max slightly if the server can handle the load
+- alive consistently far below nominal: reduce nominal, or flag a possible min/max/lifetime mismatch
+- min should stay below nominal; max should stay at or above nominal
+- lifetime is how long the entity persists before despawn (seconds) - leave unchanged (omit from the response) unless there's a clear, justified reason to change it
+- be conservative: prefer small adjustments (10-20%) unless the deviation is severe
+
+OUTPUT: A JSON object with key 'groups' whose value is an array. No markdown, no commentary outside 'reason'.
+Only include groups that need changes. Omit balanced groups.
+Example: {{ ""groups"": [{{ ""className"":""ZmbM_HermitCitizen4_Autumn"", ""nominal"":9, ""min"":6, ""max"":12, ""reason"":""..."" }}] }}";
+
+    private static (List<AiSpawnGroupItem> items, int tokens) ParseSpawnGroupResponse(string raw)
+    {
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+
+        var tokens = 0;
+        if (root.TryGetProperty("usage", out var usage) &&
+            usage.TryGetProperty("total_tokens", out var tt) &&
+            tt.ValueKind == JsonValueKind.Number)
+            tokens = tt.GetInt32();
+
+        var items = new List<AiSpawnGroupItem>();
+        if (!root.TryGetProperty("choices", out var choices) || choices.GetArrayLength() == 0)
+            return (items, tokens);
+
+        var content = choices[0].GetProperty("message").GetProperty("content").GetString() ?? string.Empty;
+        var cleaned = StripCodeFences(content).Trim();
+        if (string.IsNullOrEmpty(cleaned)) return (items, tokens);
+
+        try
+        {
+            using var inner = JsonDocument.Parse(cleaned);
+            JsonElement arr;
+            var hasArr = false;
+
+            if (inner.RootElement.ValueKind == JsonValueKind.Object &&
+                inner.RootElement.TryGetProperty("groups", out arr) && arr.ValueKind == JsonValueKind.Array)
+            {
+                hasArr = true;
+            }
+            else if (inner.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                arr = inner.RootElement;
+                hasArr = true;
+            }
+            else
+            {
+                arr = default;
+            }
+
+            if (hasArr)
+            {
+                foreach (var el in arr.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+                    var item = new AiSpawnGroupItem();
+                    if (el.TryGetProperty("className", out var c) && c.ValueKind == JsonValueKind.String)
+                        item.ClassName = c.GetString() ?? string.Empty;
+                    if (string.IsNullOrEmpty(item.ClassName)) continue;
+                    if (el.TryGetProperty("nominal", out var n) && n.ValueKind == JsonValueKind.Number) item.Nominal = n.GetInt32();
+                    if (el.TryGetProperty("min", out var m) && m.ValueKind == JsonValueKind.Number) item.Min = m.GetInt32();
+                    if (el.TryGetProperty("max", out var mx) && mx.ValueKind == JsonValueKind.Number) item.Max = mx.GetInt32();
+                    if (el.TryGetProperty("lifetime", out var l) && l.ValueKind == JsonValueKind.Number) item.Lifetime = l.GetInt32();
+                    if (el.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String) item.Reason = r.GetString();
+                    items.Add(item);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Bad JSON from model - skip this pass's suggestions, caller counts it as an error.
+        }
+
+        return (items, tokens);
     }
 
     private static void AddChange(BalanceSuggestion sug, string field, int oldVal, int? newVal)

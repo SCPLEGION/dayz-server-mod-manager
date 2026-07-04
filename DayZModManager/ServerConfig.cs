@@ -119,4 +119,45 @@ public sealed class ServerConfig
     /// </summary>
     [JsonPropertyName("managerModSourceDir")]
     public string? ManagerModSourceDir { get; set; }
+
+    // ---- Notifications (Discord-style webhook) ----
+
+    [JsonPropertyName("webhookUrl")]
+    public string? WebhookUrl { get; set; }
+
+    [JsonPropertyName("notifyOnCrash")]
+    public bool NotifyOnCrash { get; set; } = true;
+
+    [JsonPropertyName("notifyOnRestart")]
+    public bool NotifyOnRestart { get; set; } = true;
+
+    [JsonPropertyName("notifyOnModUpdate")]
+    public bool NotifyOnModUpdate { get; set; }
+
+    // ---- Scheduling (only runs while this app's GUI process is alive - not an OS-level cron) ----
+
+    [JsonPropertyName("scheduledRestartEnabled")]
+    public bool ScheduledRestartEnabled { get; set; }
+
+    /// <summary>Local time of day, "HH:mm", the server restarts at when <see cref="ScheduledRestartEnabled"/>.</summary>
+    [JsonPropertyName("scheduledRestartTimeOfDay")]
+    public string ScheduledRestartTimeOfDay { get; set; } = "04:00";
+
+    [JsonPropertyName("scheduledUpdateCheckEnabled")]
+    public bool ScheduledUpdateCheckEnabled { get; set; }
+
+    [JsonPropertyName("scheduledUpdateIntervalHours")]
+    public double ScheduledUpdateIntervalHours { get; set; } = 6;
+
+    // ---- RCON (BattlEye BERCon admin console) ----
+
+    [JsonPropertyName("rconEnabled")]
+    public bool RconEnabled { get; set; }
+
+    [JsonPropertyName("rconPort")]
+    public int RconPort { get; set; } = 2306;
+
+    /// <summary>DPAPI-encrypted (base64) blob - decrypt with ApiKeyProtection.Unprotect.</summary>
+    [JsonPropertyName("rconPasswordEncrypted")]
+    public string RconPasswordEncrypted { get; set; } = string.Empty;
 }

@@ -24,6 +24,9 @@ public partial class AiBalancerTab : UserControl
     private readonly EconomyApiListener _listener = new();
     private readonly AiBalancerService _ai = new();
     private readonly XmlApplyService _xml = new();
+    private readonly EventsXmlApplyService _eventsXml = new();
+    private readonly BalancerSchedulerService _scheduler = new();
+    private bool _scheduledRunInProgress;
     private readonly ServerFilesService _serverFiles = new();
     private readonly AiTaskService _taskAi = new();
     private readonly TaskApplyService _taskApply = new();
@@ -54,9 +57,10 @@ public partial class AiBalancerTab : UserControl
 
         _listener.SnapshotReceived += OnSnapshotReceived;
         _listener.LogMessage += (_, m) => AppendLog(m);
+        _scheduler.RunDue += () => Dispatcher.UIThread.InvokeAsync(() => { _ = OnScheduledRunAsync(); });
 
         _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _statusTimer.Tick += (_, _) => UpdateLastReceivedLabel();
+        _statusTimer.Tick += (_, _) => { UpdateLastReceivedLabel(); UpdateScheduleStatusLabel(); };
         _statusTimer.Start();
 
         Loaded += OnLoaded;
@@ -69,6 +73,7 @@ public partial class AiBalancerTab : UserControl
             var cfg = AppConfigStore.Load();
             _cfg = cfg.AiBalancer ?? new AiBalancerConfig();
             ApplyConfigToUi(_cfg);
+            ApplySchedulerConfig(_cfg);
 
             _listener.LoadRecentFromDisk();
             var last = _listener.RecentSnapshots.LastOrDefault();
@@ -109,6 +114,17 @@ public partial class AiBalancerTab : UserControl
         ServerRootPathBox.Text = cfg.ServerRootPath ?? string.Empty;
         MissionPathBox.Text = cfg.MissionPath ?? string.Empty;
         BackupCheck.IsChecked = cfg.BackupBeforeApply;
+        McpApplyEnabledCheck.IsChecked = cfg.McpApplyEnabled;
+        ScheduleEnabledCheck.IsChecked = cfg.ScheduleEnabled;
+        ScheduleIntervalTextBox.Text = cfg.ScheduleIntervalMinutes > 0 ? cfg.ScheduleIntervalMinutes.ToString() : "60";
+        AutoApplyEnabledCheck.IsChecked = cfg.AutoApplyEnabled;
+        AutoApplyMaxDeltaTextBox.Text = cfg.AutoApplyMaxDeltaPercent > 0 ? cfg.AutoApplyMaxDeltaPercent.ToString(System.Globalization.CultureInfo.InvariantCulture) : "20";
+    }
+
+    private void ApplySchedulerConfig(AiBalancerConfig cfg)
+    {
+        _scheduler.Enabled = cfg.ScheduleEnabled;
+        _scheduler.IntervalMinutes = cfg.ScheduleIntervalMinutes > 0 ? cfg.ScheduleIntervalMinutes : 60;
     }
 
     private static void SelectComboByText(ComboBox combo, string? text)
@@ -149,6 +165,11 @@ public partial class AiBalancerTab : UserControl
             MissionPath = MissionPathBox.Text?.Trim() ?? string.Empty,
             BackupBeforeApply = BackupCheck.IsChecked ?? true,
             AutoStartListener = _cfg.AutoStartListener,
+            McpApplyEnabled = McpApplyEnabledCheck.IsChecked ?? false,
+            ScheduleEnabled = ScheduleEnabledCheck.IsChecked ?? false,
+            ScheduleIntervalMinutes = int.TryParse(ScheduleIntervalTextBox.Text, out var si) && si > 0 ? si : 60,
+            AutoApplyEnabled = AutoApplyEnabledCheck.IsChecked ?? false,
+            AutoApplyMaxDeltaPercent = double.TryParse(AutoApplyMaxDeltaTextBox.Text, out var ad) && ad > 0 ? ad : 20,
         };
     }
 
@@ -157,6 +178,7 @@ public partial class AiBalancerTab : UserControl
         try
         {
             _cfg = CaptureConfigFromUi();
+            ApplySchedulerConfig(_cfg);
             var store = AppConfigStore.Load();
             store.AiBalancer = _cfg;
             AppConfigStore.Save(store);
@@ -221,6 +243,26 @@ public partial class AiBalancerTab : UserControl
                 : $"{(int)ago.TotalHours} h ago";
             LastReceivedText.Text = $"Last data received: {txt}";
         }
+    }
+
+    private void UpdateScheduleStatusLabel()
+    {
+        if (!_scheduler.Enabled) { ScheduleStatusText.Text = "Scheduled runs: off"; return; }
+
+        var next = _scheduler.NextRunUtc;
+        if (next == null) { ScheduleStatusText.Text = "Scheduled runs: on"; return; }
+
+        var remaining = next.Value - DateTime.UtcNow;
+        ScheduleStatusText.Text = remaining <= TimeSpan.Zero
+            ? "Scheduled runs: on (due now)"
+            : $"Scheduled runs: on (next in {FormatRemaining(remaining)})";
+    }
+
+    private static string FormatRemaining(TimeSpan t)
+    {
+        if (t.TotalMinutes < 1) return $"{(int)t.TotalSeconds}s";
+        if (t.TotalHours < 1) return $"{(int)t.TotalMinutes}m";
+        return $"{(int)t.TotalHours}h {t.Minutes}m";
     }
 
     private void OnSnapshotReceived(object? sender, EconomySnapshot snap)
@@ -552,13 +594,6 @@ public partial class AiBalancerTab : UserControl
 
     private async void OnApplySelected(object? sender, RoutedEventArgs e)
     {
-        var path = TypesXmlPathBox.Text?.Trim() ?? string.Empty;
-        if (string.IsNullOrEmpty(path) || !File.Exists(path))
-        {
-            await ShowWarning("Set a valid types.xml path first.");
-            return;
-        }
-
         var approvedRows = _viewSuggestions.Where(r => r.IsApproved).ToList();
         if (approvedRows.Count == 0)
         {
@@ -566,43 +601,183 @@ public partial class AiBalancerTab : UserControl
             return;
         }
 
-        var backupNote = BackupCheck.IsChecked == true ? "Original will be backed up." : "No backup will be created.";
-        if (!await MsgBox.Confirm(GetParentWindow(), $"Apply {approvedRows.Count} field change(s) to types.xml?\n{backupNote}", "Confirm apply")) return;
-
-        var byClass = approvedRows.GroupBy(r => r.ClassName, StringComparer.OrdinalIgnoreCase);
-        var toApply = new List<BalanceSuggestion>();
-        foreach (var g in byClass)
+        var (typesPath, eventsPath, pathError) = ResolveApplyPaths(approvedRows);
+        if (pathError != null)
         {
-            var sug = new BalanceSuggestion
-            {
-                ClassName = g.Key,
-                Category = g.First().Category,
-                AiReason = g.First().Reason,
-                IsApproved = true,
-            };
-            foreach (var r in g)
-                sug.Changes[r.Field] = new FieldChange { OldValue = r.OldValue, NewValue = r.NewValue };
-            toApply.Add(sug);
+            await ShowWarning(pathError);
+            return;
         }
+
+        var backupNote = BackupCheck.IsChecked == true ? "Original file(s) will be backed up." : "No backup will be created.";
+        if (!await MsgBox.Confirm(GetParentWindow(), $"Apply {approvedRows.Count} field change(s)?\n{backupNote}", "Confirm apply")) return;
 
         try
         {
-            var applyResult = _xml.Apply(toApply, path, BackupCheck.IsChecked == true);
-            var msg = $"Applied: {applyResult.Applied}\nNot found: {applyResult.NotFound}";
-            if (!string.IsNullOrEmpty(applyResult.BackupPath)) msg += $"\nBackup: {Path.GetFileName(applyResult.BackupPath)}";
-            if (applyResult.Errors.Count > 0) msg += "\nErrors: " + applyResult.Errors.Count;
+            var (applied, notFound, errors, backupPaths) = ApplyRows(approvedRows, typesPath, eventsPath);
+
+            var msg = $"Applied: {applied}\nNot found: {notFound}";
+            if (backupPaths.Count > 0) msg += "\nBackup: " + string.Join(", ", backupPaths.Select(Path.GetFileName));
+            if (errors > 0) msg += "\nErrors: " + errors;
             await ShowInfo(msg);
-            AppendLog($"Apply complete. {applyResult.Applied} applied, {applyResult.NotFound} not found, {applyResult.Errors.Count} errors.");
+            AppendLog($"Apply complete. {applied} applied, {notFound} not found, {errors} errors.");
 
             SaveHistoryEntry(_allSuggestions.Count, 0, _cfg.OpenAiModel,
                 approvedRows.Count == _allSuggestions.Count ? "Applied" : "Partially applied",
-                approvedRows.Count, _allSuggestions.Count - approvedRows.Count, applyResult.BackupPath);
+                approvedRows.Count, _allSuggestions.Count - approvedRows.Count, backupPaths.FirstOrDefault());
             RefreshHistoryList();
         }
         catch (Exception ex)
         {
             await ShowError("Apply failed: " + ex.Message);
         }
+    }
+
+    /// <summary>Validates that the file(s) needed by <paramref name="rows"/>' targets are set, without touching disk.</summary>
+    private (string typesPath, string eventsPath, string? error) ResolveApplyPaths(List<SuggestionRowViewModel> rows)
+    {
+        var typesRows = rows.Where(r => r.Target == SuggestionTarget.TypesXml).ToList();
+        var eventsRows = rows.Where(r => r.Target == SuggestionTarget.EventsXml).ToList();
+
+        var typesPath = TypesXmlPathBox.Text?.Trim() ?? string.Empty;
+        if (typesRows.Count > 0 && (string.IsNullOrEmpty(typesPath) || !File.Exists(typesPath)))
+            return (typesPath, string.Empty, "Set a valid types.xml path first.");
+
+        var eventsPath = EventsXmlPathBox.Text?.Trim() ?? string.Empty;
+        if (eventsRows.Count > 0 && (string.IsNullOrEmpty(eventsPath) || !File.Exists(eventsPath)))
+            return (typesPath, eventsPath, "Set a valid events.xml path first (zombie/animal spawn-group suggestions are selected).");
+
+        return (typesPath, eventsPath, null);
+    }
+
+    /// <summary>Shared by the manual Apply button and scheduled auto-apply - no confirmation dialog here.</summary>
+    private (int applied, int notFound, int errors, List<string> backupPaths) ApplyRows(
+        List<SuggestionRowViewModel> rows, string typesPath, string eventsPath)
+    {
+        var typesRows = rows.Where(r => r.Target == SuggestionTarget.TypesXml).ToList();
+        var eventsRows = rows.Where(r => r.Target == SuggestionTarget.EventsXml).ToList();
+
+        var applied = 0;
+        var notFound = 0;
+        var errors = 0;
+        var backupPaths = new List<string>();
+
+        if (typesRows.Count > 0)
+        {
+            var toApply = BuildSuggestionsFromRows(typesRows, SuggestionTarget.TypesXml);
+            var r = _xml.Apply(toApply, typesPath, BackupCheck.IsChecked == true);
+            applied += r.Applied; notFound += r.NotFound; errors += r.Errors.Count;
+            if (!string.IsNullOrEmpty(r.BackupPath)) backupPaths.Add(r.BackupPath);
+        }
+
+        if (eventsRows.Count > 0)
+        {
+            var toApply = BuildSuggestionsFromRows(eventsRows, SuggestionTarget.EventsXml);
+            var r = _eventsXml.Apply(toApply, eventsPath, BackupCheck.IsChecked == true);
+            applied += r.Applied; notFound += r.NotFound; errors += r.Errors.Count;
+            if (!string.IsNullOrEmpty(r.BackupPath)) backupPaths.Add(r.BackupPath);
+        }
+
+        return (applied, notFound, errors, backupPaths);
+    }
+
+    private async Task OnScheduledRunAsync()
+    {
+        if (_scheduledRunInProgress || _runCts != null)
+        {
+            AppendLog("[schedule] skipped - a run is already in progress.");
+            return;
+        }
+
+        _scheduledRunInProgress = true;
+        try
+        {
+            var snap = _listener.RecentSnapshots.LastOrDefault();
+            if (snap == null || snap.Items == null || snap.Items.Count == 0)
+            {
+                AppendLog("[schedule] skipped - no economy snapshot yet.");
+                return;
+            }
+
+            var apiKey = ApiKeyProtection.Unprotect(_cfg.OpenAiApiKeyEncrypted);
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                AppendLog("[schedule] skipped - no OpenAI API key configured.");
+                return;
+            }
+
+            var opts = new AiBalancerOptions
+            {
+                ApiKey = apiKey,
+                Model = _cfg.OpenAiModel,
+                Concurrency = _cfg.Concurrency,
+                BatchSize = _cfg.BatchSize,
+                ServerType = _cfg.ServerType,
+            };
+
+            AppendLog("[schedule] scheduled AI run starting...");
+            var run = await Task.Run(() => _ai.RunAsync(snap, _listener.RecentSnapshots, opts, null, CancellationToken.None));
+            PopulateSuggestions(run);
+            AppendLog($"[schedule] run finished. {_allSuggestions.Count} field-change(s) across {run.Suggestions.Count} item(s). Tokens={run.TotalTokensUsed}.");
+            SaveHistoryEntry(run.Suggestions.Count, run.TotalTokensUsed, opts.Model, "Generated");
+            RefreshHistoryList();
+
+            if (!_cfg.AutoApplyEnabled) return;
+
+            var threshold = _cfg.AutoApplyMaxDeltaPercent;
+            var withinThreshold = _allSuggestions
+                .Where(r => r.OldValue != 0 && Math.Abs(r.Delta) * 100.0 / Math.Abs(r.OldValue) <= threshold)
+                .ToList();
+
+            if (withinThreshold.Count == 0)
+            {
+                AppendLog("[schedule] auto-apply: no suggestions within threshold, nothing applied.");
+                return;
+            }
+
+            var (typesPath, eventsPath, pathError) = ResolveApplyPaths(withinThreshold);
+            if (pathError != null)
+            {
+                AppendLog("[schedule] auto-apply skipped - " + pathError);
+                return;
+            }
+
+            var (applied, notFound, errors, backupPaths) = ApplyRows(withinThreshold, typesPath, eventsPath);
+            AppendLog($"[schedule] auto-applied {applied} change(s) within {threshold}% threshold ({notFound} not found, {errors} errors).");
+            SaveHistoryEntry(_allSuggestions.Count, 0, _cfg.OpenAiModel, "Applied",
+                withinThreshold.Count, _allSuggestions.Count - withinThreshold.Count, backupPaths.FirstOrDefault());
+            RefreshHistoryList();
+        }
+        catch (Exception ex)
+        {
+            AppendLog("[schedule] run failed: " + ex.Message);
+        }
+        finally
+        {
+            _scheduledRunInProgress = false;
+        }
+    }
+
+    private static List<BalanceSuggestion> BuildSuggestionsFromRows(
+        List<SuggestionRowViewModel> rows, SuggestionTarget target)
+    {
+        var toApply = new List<BalanceSuggestion>();
+        foreach (var g in rows.GroupBy(r => r.ClassName, StringComparer.OrdinalIgnoreCase))
+        {
+            var first = g.First();
+            var sug = new BalanceSuggestion
+            {
+                ClassName = g.Key,
+                Category = first.Category,
+                AiReason = first.Reason,
+                IsApproved = true,
+                Target = target,
+                EventName = first.Source?.EventName,
+            };
+            foreach (var r in g)
+                sug.Changes[r.Field] = new FieldChange { OldValue = r.OldValue, NewValue = r.NewValue };
+            toApply.Add(sug);
+        }
+        return toApply;
     }
 
     private async void OnExportSuggestions(object? sender, RoutedEventArgs e)

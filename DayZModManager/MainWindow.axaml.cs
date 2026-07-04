@@ -32,8 +32,14 @@ public partial class MainWindow : Window
 
     private readonly Dictionary<ulong, string?> _titleCache = new();
     private readonly Dictionary<ulong, List<ulong>> _depsCache = new();
+    private readonly HashSet<ulong> _modsWithUpdateAvailable = new();
 
     private ServerProcessController? _server;
+    private ServerScheduleService? _schedule;
+    private BattlEyeRconClient? _rcon;
+    private ServerConfig? _lastAppliedServerConfig;
+    private readonly ObservableCollection<AppConfigStore.ServerProfileEntry> _serverProfiles = new();
+    private bool _suppressServerProfileSelection;
     private RptLogTail? _tail;
     private readonly LinkedList<string> _tailBuffer = new();
     private DispatcherTimer? _uptimeTimer;
@@ -51,6 +57,7 @@ public partial class MainWindow : Window
         ModsListBox.ItemsSource = _modsListItems;
         ModFoldersListBox.ItemsSource = _modFolders;
         HistoryListBox.ItemsSource = _historyItems;
+        ServerProfileComboBox.ItemsSource = _serverProfiles;
 
         LocalIdsListBox.SelectionChanged += OnLocalIdSelected;
 
@@ -95,8 +102,16 @@ public partial class MainWindow : Window
             PreStartPresetComboBox.ItemsSource = XmlMergePresets.All;
             PreStartPresetComboBox.SelectedIndex = 0;
 
-            HydrateServerUiFromConfig(cfg.Server);
+            _suppressServerProfileSelection = true;
+            _serverProfiles.Clear();
+            foreach (var p in cfg.ServerProfiles!) _serverProfiles.Add(p);
+            var activeProfile = cfg.GetOrCreateActiveProfile();
+            ServerProfileComboBox.SelectedItem = activeProfile;
+            _suppressServerProfileSelection = false;
+
+            HydrateServerUiFromConfig(activeProfile.Server);
             InitServerController();
+            ApplyScheduleConfig(activeProfile.Server);
             UpdateServerModeVisibility();
             UpdateServerButtonsForState(ServerState.Stopped);
 
@@ -117,6 +132,8 @@ public partial class MainWindow : Window
         try { PersistAllDirsToConfig(); } catch { }
         try { _tail?.Dispose(); } catch { }
         try { _server?.Detach(); } catch { }
+        try { _schedule?.Dispose(); } catch { }
+        try { _rcon?.Dispose(); } catch { }
     }
 
     private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -149,16 +166,19 @@ public partial class MainWindow : Window
 
     private void PersistAllDirsToConfig()
     {
-        var cfg = new AppConfigStore.Config
-        {
-            ModsRootPath = ModsRootTextBox?.Text?.Trim(),
-            LocalModsTxtPath = LocalFilePathTextBox?.Text?.Trim(),
-            CombineOutFileText = CombineOutFileTextBox?.Text?.Trim(),
-            MergeModeSelectedIndex = MergeModeComboBox?.SelectedIndex,
-            SelectedPresetId = (PresetComboBox?.SelectedItem as XmlMergePreset)?.Id,
-            ExcludedXmlGenDirs = ReadExcludedXmlGenDirs(),
-            Server = ReadServerConfigFromUi()
-        };
+        var cfg = AppConfigStore.Load();
+        cfg.ModsRootPath = ModsRootTextBox?.Text?.Trim();
+        cfg.LocalModsTxtPath = LocalFilePathTextBox?.Text?.Trim();
+        cfg.CombineOutFileText = CombineOutFileTextBox?.Text?.Trim();
+        cfg.MergeModeSelectedIndex = MergeModeComboBox?.SelectedIndex;
+        cfg.SelectedPresetId = (PresetComboBox?.SelectedItem as XmlMergePreset)?.Id;
+        cfg.ExcludedXmlGenDirs = ReadExcludedXmlGenDirs();
+
+        var active = SelectedServerProfile ?? cfg.GetOrCreateActiveProfile();
+        active.Server = ReadServerConfigFromUi();
+        cfg.ServerProfiles = _serverProfiles.Count > 0 ? _serverProfiles.ToList() : cfg.ServerProfiles;
+        cfg.ActiveServerProfileId = active.Id;
+
         AppConfigStore.Save(cfg);
     }
 
@@ -326,7 +346,8 @@ public partial class MainWindow : Window
                 {
                     var installed = modsRootExists && Directory.Exists(Path.Combine(modsRoot, id.ToString()));
                     if (installed) installedCount++;
-                    _localItems.Add(installed ? $"{id} (installed)" : id.ToString());
+                    var updateTag = _modsWithUpdateAvailable.Contains(id) ? " [UPDATE AVAILABLE]" : "";
+                    _localItems.Add((installed ? $"{id} (installed)" : id.ToString()) + updateTag);
                 }
                 LocalFooterTextBlock.Text = invalidCount > 0
                     ? $"Loaded {ids.Length} IDs (invalid lines: {invalidCount})."
@@ -360,10 +381,11 @@ public partial class MainWindow : Window
             {
                 var installed = modsRootExists && Directory.Exists(Path.Combine(modsRoot, id.ToString()));
                 if (installed) installedTotal++;
+                var updateTag = _modsWithUpdateAvailable.Contains(id) ? " [UPDATE AVAILABLE]" : "";
                 if (!string.IsNullOrWhiteSpace(title))
-                    _localItems.Add(installed ? $"{id} - {title} (installed)" : $"{id} - {title}");
+                    _localItems.Add((installed ? $"{id} - {title} (installed)" : $"{id} - {title}") + updateTag);
                 else
-                    _localItems.Add(installed ? $"{id} (installed)" : id.ToString());
+                    _localItems.Add((installed ? $"{id} (installed)" : id.ToString()) + updateTag);
             }
 
             LocalFooterTextBlock.Text = invalidCount > 0
@@ -378,6 +400,39 @@ public partial class MainWindow : Window
         finally
         {
             LocalStatusTextBlock.Text = "";
+        }
+    }
+
+    private async void OnCheckModUpdates(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            LocalStatusTextBlock.Text = "Checking for mod updates...";
+            var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
+            if (ids.Count == 0) { LocalStatusTextBlock.Text = "No mods to check."; return; }
+
+            var apiKey = LocalApiKeyTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
+
+            var details = await SteamWorkshopClient.GetPublishedFileDetailsBatchAsync(ids, apiKey);
+            var deployState = ModDeployStateStore.LoadAll();
+
+            _modsWithUpdateAvailable.Clear();
+            foreach (var id in ids)
+            {
+                if (!details.TryGetValue(id, out var d) || d.TimeUpdated is not long updated) continue;
+                if (deployState.TryGetValue(id, out var deployedAt) && updated > deployedAt)
+                    _modsWithUpdateAvailable.Add(id);
+            }
+
+            await RefreshLocalAsync();
+            LocalStatusTextBlock.Text = _modsWithUpdateAvailable.Count == 0
+                ? "Checked - no updates found (note: only mods deployed at least once can be compared)."
+                : $"Checked - {_modsWithUpdateAvailable.Count} mod(s) have updates available.";
+        }
+        catch (Exception ex)
+        {
+            LocalStatusTextBlock.Text = ex.Message;
         }
     }
 
@@ -581,6 +636,92 @@ public partial class MainWindow : Window
                 : $"Added {toAdd.Length} mods to mods.txt.";
 
             HistoryLogger.Append("add", toAdd, Array.Empty<ulong>(), "bulk-add");
+            await RefreshModsListAsync();
+        }
+        catch (Exception ex)
+        {
+            AddStatusTextBlock.Text = ex.Message;
+        }
+    }
+
+    private static ulong ParseCollectionIdOrUrl(string raw)
+    {
+        raw = raw.Trim();
+
+        var idxQuery = raw.IndexOf("?id=", StringComparison.OrdinalIgnoreCase);
+        if (idxQuery >= 0)
+        {
+            var tail = raw[(idxQuery + 4)..];
+            var ampIdx = tail.IndexOf('&');
+            if (ampIdx >= 0) tail = tail[..ampIdx];
+            return ModStorage.ParseWorkshopId(tail);
+        }
+
+        // Covers path-shaped URLs without a query string, e.g.
+        // steamcommunity.com/sharedfiles/collection/<id> or .../collection/<id>/ -
+        // take the trailing run of digits.
+        var match = System.Text.RegularExpressions.Regex.Match(raw, @"(\d+)\D*$");
+        if (match.Success)
+            return ModStorage.ParseWorkshopId(match.Groups[1].Value);
+
+        return ModStorage.ParseWorkshopId(raw);
+    }
+
+    private async void OnImportCollection(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var raw = CollectionIdTextBox.Text ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                AddStatusTextBlock.Text = "Enter a collection ID or URL first.";
+                return;
+            }
+
+            ulong collectionId;
+            try { collectionId = ParseCollectionIdOrUrl(raw); }
+            catch
+            {
+                AddStatusTextBlock.Text = "Invalid collection ID/URL.";
+                return;
+            }
+
+            var apiKey = SearchApiKeyTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
+
+            AddStatusTextBlock.Text = "Fetching collection...";
+            var children = await SteamWorkshopClient.GetCollectionChildrenAsync(collectionId, apiKey);
+            if (children.Count == 0)
+            {
+                AddStatusTextBlock.Text = "Collection is empty or could not be read.";
+                return;
+            }
+
+            var root = new HashSet<ulong>(children);
+
+            var closure = root;
+            if (AutoAddDepsCheckBox.IsChecked == true)
+            {
+                AddStatusTextBlock.Text = "Resolving dependencies...";
+                closure = await ResolveDependenciesClosureAsync(root, apiKey);
+            }
+
+            var modsTxtPath = CurrentModsTxtPath();
+            var existing = ModStorage.LoadIds(modsTxtPath);
+            var toAdd = closure.Where(x => !existing.Contains(x)).ToArray();
+
+            if (toAdd.Length == 0) { AddStatusTextBlock.Text = "Nothing to add (already in mods.txt)."; return; }
+
+            var preview = BuildModsTxtAddPreview(toAdd, apiKey);
+            if (!await MsgBox.Confirm(this, preview, "Preview mods.txt changes")) return;
+
+            existing.UnionWith(toAdd);
+            ModStorage.SaveIdsFromSet(modsTxtPath, existing);
+            AddStatusTextBlock.Text = AutoAddDepsCheckBox.IsChecked == true
+                ? $"Imported collection: added {toAdd.Length} mods (incl. dependencies)."
+                : $"Imported collection: added {toAdd.Length} mods to mods.txt.";
+
+            HistoryLogger.Append("add", toAdd, Array.Empty<ulong>(), "collection-import");
             await RefreshModsListAsync();
         }
         catch (Exception ex)
@@ -886,6 +1027,46 @@ public partial class MainWindow : Window
         catch (Exception ex) { FolderDetailsTextBox.Text = $"Preview failed: {ex.Message}"; }
     }
 
+    /// <summary>Best-effort, non-blocking pre-deploy warning; never gates the actual deploy.</summary>
+    private void LogModConflictsIfAny()
+    {
+        try
+        {
+            var root = ModsRootTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return;
+
+            var entries = ModConflictDetector.DetectConflicts(root, GetSelectedMergeMode(), ReadExcludedXmlGenDirs());
+            if (entries.Count > 0)
+                AppendLogLine($"[manager] warning: {entries.Count} mod conflict(s) detected across types/events/spawnable presets — see MOD_FOLDERS > CHECK MOD CONFLICTS for details.");
+        }
+        catch
+        {
+            // Pre-deploy convenience check only; never block deploy on it.
+        }
+    }
+
+    private void OnCheckModConflicts(object? sender, RoutedEventArgs e) => _ = CheckModConflictsAsync();
+
+    private async Task CheckModConflictsAsync()
+    {
+        try
+        {
+            var root = ModsRootTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            {
+                FolderDetailsTextBox.Text = "Invalid mods root directory.";
+                return;
+            }
+
+            FolderDetailsTextBox.Text = "Checking for mod conflicts (types/events/spawnable presets)...";
+            var mergeMode = GetSelectedMergeMode();
+            var excluded = ReadExcludedXmlGenDirs();
+            var entries = await Task.Run(() => ModConflictDetector.DetectConflicts(root, mergeMode, excluded));
+            FolderDetailsTextBox.Text = ModConflictDetector.FormatReport(entries);
+        }
+        catch (Exception ex) { FolderDetailsTextBox.Text = $"Conflict check failed: {ex.Message}"; }
+    }
+
     private static string FormatStats(XmlMergeStats stats)
     {
         var sb = new StringBuilder();
@@ -921,18 +1102,22 @@ public partial class MainWindow : Window
 
     private async void OnSaveSettings(object? sender, RoutedEventArgs e)
     {
-        var cfg = new AppConfigStore.Config
-        {
-            ModsRootPath = ModsRootTextBox.Text.Trim(),
-            LocalModsTxtPath = LocalFilePathTextBox.Text.Trim(),
-            CombineOutFileText = CombineOutFileTextBox.Text.Trim(),
-            MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex,
-            SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id,
-            ExcludedXmlGenDirs = ReadExcludedXmlGenDirs(),
-            Server = ReadServerConfigFromUi()
-        };
+        var cfg = AppConfigStore.Load();
+        cfg.ModsRootPath = ModsRootTextBox.Text.Trim();
+        cfg.LocalModsTxtPath = LocalFilePathTextBox.Text.Trim();
+        cfg.CombineOutFileText = CombineOutFileTextBox.Text.Trim();
+        cfg.MergeModeSelectedIndex = MergeModeComboBox.SelectedIndex;
+        cfg.SelectedPresetId = (PresetComboBox.SelectedItem as XmlMergePreset)?.Id;
+        cfg.ExcludedXmlGenDirs = ReadExcludedXmlGenDirs();
+
+        var active = SelectedServerProfile ?? cfg.GetOrCreateActiveProfile();
+        var serverCfg = ReadServerConfigFromUi();
+        active.Server = serverCfg;
+        cfg.ServerProfiles = _serverProfiles.Count > 0 ? _serverProfiles.ToList() : cfg.ServerProfiles;
+        cfg.ActiveServerProfileId = active.Id;
+
         AppConfigStore.Save(cfg);
-        ApplyServerConfigToController(cfg.Server);
+        ApplyServerConfigToController(serverCfg);
         await MsgBox.Info(this, "Settings saved.", "Saved");
     }
 
@@ -1095,6 +1280,19 @@ public partial class MainWindow : Window
             if (preset != null) PreStartPresetComboBox.SelectedItem = preset;
         }
         _tailLineCap = cfg.TailLineCap > 0 ? cfg.TailLineCap : 2000;
+        WebhookUrlTextBox.Text = cfg.WebhookUrl ?? string.Empty;
+        NotifyOnCrashCheckBox.IsChecked = cfg.NotifyOnCrash;
+        NotifyOnRestartCheckBox.IsChecked = cfg.NotifyOnRestart;
+        NotifyOnModUpdateCheckBox.IsChecked = cfg.NotifyOnModUpdate;
+        ScheduledRestartCheckBox.IsChecked = cfg.ScheduledRestartEnabled;
+        ScheduledRestartTimeTextBox.Text = string.IsNullOrWhiteSpace(cfg.ScheduledRestartTimeOfDay) ? "04:00" : cfg.ScheduledRestartTimeOfDay;
+        ScheduledUpdateCheckCheckBox.IsChecked = cfg.ScheduledUpdateCheckEnabled;
+        ScheduledUpdateIntervalTextBox.Text = cfg.ScheduledUpdateIntervalHours > 0 ? cfg.ScheduledUpdateIntervalHours.ToString() : "6";
+        ApplyScheduleConfig(cfg);
+
+        RconEnabledCheckBox.IsChecked = cfg.RconEnabled;
+        RconPortTextBox.Text = (cfg.RconPort > 0 ? cfg.RconPort : 2306).ToString();
+        RconPasswordTextBox.Text = ApiKeyProtection.Unprotect(cfg.RconPasswordEncrypted ?? string.Empty);
     }
 
     private ServerConfig ReadServerConfigFromUi()
@@ -1132,8 +1330,27 @@ public partial class MainWindow : Window
             AutoRestartMaxRetries = maxRetries,
             RunPreStartMerge = PreStartMergeCheckBox.IsChecked == true,
             PreStartPresetId = (PreStartPresetComboBox.SelectedItem as XmlMergePreset)?.Id,
-            TailLineCap = _tailLineCap
+            TailLineCap = _tailLineCap,
+            WebhookUrl = NullIfEmpty(WebhookUrlTextBox.Text),
+            NotifyOnCrash = NotifyOnCrashCheckBox.IsChecked == true,
+            NotifyOnRestart = NotifyOnRestartCheckBox.IsChecked == true,
+            NotifyOnModUpdate = NotifyOnModUpdateCheckBox.IsChecked == true,
+            ScheduledRestartEnabled = ScheduledRestartCheckBox.IsChecked == true,
+            ScheduledRestartTimeOfDay = ParseScheduleTimeOfDayOrDefault(ScheduledRestartTimeTextBox.Text),
+            ScheduledUpdateCheckEnabled = ScheduledUpdateCheckCheckBox.IsChecked == true,
+            ScheduledUpdateIntervalHours = double.TryParse(ScheduledUpdateIntervalTextBox.Text.Trim(), out var hrs) && hrs > 0 ? hrs : 6,
+            RconEnabled = RconEnabledCheckBox.IsChecked == true,
+            RconPort = int.TryParse(RconPortTextBox.Text.Trim(), out var rp) && rp > 0 ? rp : 2306,
+            RconPasswordEncrypted = ApiKeyProtection.Protect(RconPasswordTextBox.Text ?? string.Empty)
         };
+    }
+
+    private static string ParseScheduleTimeOfDayOrDefault(string? text)
+    {
+        var trimmed = (text ?? string.Empty).Trim();
+        return TimeSpan.TryParseExact(trimmed, "hh\\:mm", System.Globalization.CultureInfo.InvariantCulture, out _)
+            ? trimmed
+            : "04:00";
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
@@ -1152,15 +1369,242 @@ public partial class MainWindow : Window
         _server.Exited += (code, crashed) => Dispatcher.UIThread.InvokeAsync(() =>
         {
             ServerActionStatusText.Text = crashed ? $"crashed (exit {code})" : $"exited (exit {code})";
+            if (crashed && _lastAppliedServerConfig is { NotifyOnCrash: true } cfg)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, $"⚠️ DayZ server crashed (exit code {code}).");
         });
+
+        _schedule = new ServerScheduleService();
+        _schedule.RestartDue += () => Dispatcher.UIThread.InvokeAsync(() => { _ = OnScheduledRestartDueAsync(); });
+        _schedule.UpdateCheckDue += () => Dispatcher.UIThread.InvokeAsync(() => { _ = OnScheduledUpdateCheckDueAsync(); });
+    }
+
+    private async Task OnScheduledRestartDueAsync()
+    {
+        if (_server == null || _server.State != ServerState.Running) return;
+        try
+        {
+            var cfg = ReadServerConfigFromUi();
+            ApplyServerConfigToController(cfg);
+            SyncBattlEyeRconCfgIfEnabled(cfg);
+            ServerHistoryLogger.Append("scheduled-restart", cfg.Mode.ToString());
+            AppendLogLine("[manager] scheduled restart firing…");
+
+            var (deployed, deployedServer) = cfg.Mode == ServerLaunchMode.DirectExe
+                ? DeployMods(cfg) : (new List<string>(), new List<string>());
+            var spec = new ServerLaunchSpec(cfg.Mode, cfg.Ps1Path, cfg.ExePath, cfg.ProfileDir,
+                cfg.ServerRootDir, cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed,
+                cfg.Ps1LaunchParam, cfg.Ps1AppBranch, deployedServer);
+            await _server.RestartAsync(spec);
+            ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
+            UpdateServerButtonsForState(_server.State);
+
+            if (cfg.NotifyOnRestart)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, "🔄 DayZ server scheduled restart complete.");
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] scheduled restart failed: {ex.Message}");
+            ServerHistoryLogger.Append("scheduled-restart-failed", "?", detail: ex.Message);
+        }
+    }
+
+    private async Task OnScheduledUpdateCheckDueAsync()
+    {
+        var cfg = ReadServerConfigFromUi();
+        if (cfg.Mode != ServerLaunchMode.DirectExe) return; // SteamCMD update path only applies here
+
+        try
+        {
+            AppendLogLine("[manager] scheduled mod-update check running…");
+            var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
+            if (ids.Count == 0) return;
+
+            var apiKey = SearchApiKeyTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
+
+            var details = await SteamWorkshopClient.GetPublishedFileDetailsBatchAsync(ids, apiKey);
+            var deployState = ModDeployStateStore.LoadAll();
+            var pending = ids.Count(id =>
+                details.TryGetValue(id, out var d) && d.TimeUpdated is long updated &&
+                deployState.TryGetValue(id, out var deployedAt) && updated > deployedAt);
+
+            if (pending == 0)
+            {
+                AppendLogLine("[manager] scheduled check: no mod updates found.");
+                return;
+            }
+
+            AppendLogLine($"[manager] scheduled check: {pending} mod(s) updated — downloading via SteamCMD…");
+            var ok = await RunSteamCmdUpdateAsync(cfg);
+            if (!ok)
+            {
+                AppendLogLine("[manager] scheduled mod update failed.");
+                ServerHistoryLogger.Append("scheduled-update-failed", cfg.Mode.ToString());
+                return;
+            }
+
+            DeployMods(cfg);
+            ServerHistoryLogger.Append("scheduled-update-done", cfg.Mode.ToString(), detail: $"pending={pending}");
+            if (cfg.NotifyOnModUpdate)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, $"📦 Scheduled check found and deployed {pending} mod update(s).");
+
+            if (_server != null && _server.State == ServerState.Running)
+                await OnScheduledRestartDueAsync();
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] scheduled mod-update check failed: {ex.Message}");
+            ServerHistoryLogger.Append("scheduled-update-failed", cfg.Mode.ToString(), detail: ex.Message);
+        }
     }
 
     private void ApplyServerConfigToController(ServerConfig? cfg)
     {
         if (_server == null || cfg == null) return;
+        _lastAppliedServerConfig = cfg;
         _server.AutoRestartOnCrash = cfg.AutoRestartOnCrash;
         _server.AutoRestartBackoffSeconds = cfg.AutoRestartBackoffSeconds;
         _server.AutoRestartMaxRetries = cfg.AutoRestartMaxRetries;
+        ApplyScheduleConfig(cfg);
+    }
+
+    private void ApplyScheduleConfig(ServerConfig cfg)
+    {
+        if (_schedule == null) return;
+        _schedule.RestartEnabled = cfg.ScheduledRestartEnabled;
+        _schedule.RestartTimeOfDay = TimeSpan.TryParseExact(cfg.ScheduledRestartTimeOfDay, "hh\\:mm",
+            System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : new TimeSpan(4, 0, 0);
+        _schedule.UpdateCheckEnabled = cfg.ScheduledUpdateCheckEnabled;
+        _schedule.UpdateCheckIntervalHours = cfg.ScheduledUpdateIntervalHours > 0 ? cfg.ScheduledUpdateIntervalHours : 6;
+    }
+
+    /// <summary>Keeps BEServer_x64.cfg in sync before each start/restart. Best-effort - never blocks the launch.</summary>
+    private void SyncBattlEyeRconCfgIfEnabled(ServerConfig cfg)
+    {
+        if (!cfg.RconEnabled || cfg.Mode != ServerLaunchMode.DirectExe) return;
+        if (string.IsNullOrWhiteSpace(cfg.ServerRootDir)) return;
+
+        try
+        {
+            var password = ApiKeyProtection.Unprotect(cfg.RconPasswordEncrypted);
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                AppendLogLine("[manager] RCON enabled but no password set - skipping BEServer_x64.cfg sync.");
+                return;
+            }
+            BattlEyeServerCfgWriter.EnsureConfigured(cfg.ServerRootDir!, cfg.RconPort, password);
+            AppendLogLine("[manager] BEServer_x64.cfg synced with configured RCON port/password.");
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] RCON config sync failed: {ex.Message}");
+        }
+    }
+
+    // ---- RCON (BattlEye admin console) ----
+
+    private async void OnRconConnect(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var port = int.TryParse(RconPortTextBox.Text.Trim(), out var p) && p > 0 ? p : 2306;
+            var password = RconPasswordTextBox.Text ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                RconStatusText.Text = "rcon: set a password first.";
+                return;
+            }
+
+            _rcon?.Dispose();
+            _rcon = new BattlEyeRconClient();
+            _rcon.MessageReceived += m => Dispatcher.UIThread.InvokeAsync(() => AppendRconOutput("[msg] " + m));
+            _rcon.Disconnected += () => Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                RconStatusText.Text = "rcon: disconnected";
+                RconConnectButton.IsEnabled = true;
+                RconDisconnectButton.IsEnabled = false;
+            });
+
+            RconStatusText.Text = "rcon: connecting...";
+            RconConnectButton.IsEnabled = false;
+            var ok = await _rcon.ConnectAsync("127.0.0.1", port, password);
+            RconStatusText.Text = ok ? "rcon: connected" : "rcon: login failed";
+            RconConnectButton.IsEnabled = !ok;
+            RconDisconnectButton.IsEnabled = ok;
+        }
+        catch (Exception ex)
+        {
+            RconStatusText.Text = "rcon: " + ex.Message;
+            RconConnectButton.IsEnabled = true;
+        }
+    }
+
+    private void OnRconDisconnect(object? sender, RoutedEventArgs e)
+    {
+        _rcon?.Disconnect();
+        RconStatusText.Text = "rcon: disconnected";
+        RconConnectButton.IsEnabled = true;
+        RconDisconnectButton.IsEnabled = false;
+    }
+
+    private void AppendRconOutput(string text)
+    {
+        var stamped = $"[{DateTime.Now:HH:mm:ss}] {text}\r\n" + RconOutputTextBox.Text;
+        RconOutputTextBox.Text = stamped.Length > 20000 ? stamped.Substring(0, 20000) : stamped;
+    }
+
+    private async Task RunRconCommandAsync(Func<Task<string>> action)
+    {
+        if (_rcon == null || !_rcon.IsConnected)
+        {
+            AppendRconOutput("Not connected.");
+            return;
+        }
+        try
+        {
+            var result = await action();
+            AppendRconOutput(string.IsNullOrWhiteSpace(result) ? "(no response)" : result);
+        }
+        catch (Exception ex)
+        {
+            AppendRconOutput("Error: " + ex.Message);
+        }
+    }
+
+    private async void OnRconPlayers(object? sender, RoutedEventArgs e) =>
+        await RunRconCommandAsync(() => _rcon!.GetPlayersAsync(TimeSpan.FromSeconds(8)));
+
+    private async void OnRconBans(object? sender, RoutedEventArgs e) =>
+        await RunRconCommandAsync(() => _rcon!.GetBansAsync(TimeSpan.FromSeconds(8)));
+
+    private async void OnRconBroadcast(object? sender, RoutedEventArgs e)
+    {
+        var msg = RconBroadcastTextBox.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(msg)) return;
+        await RunRconCommandAsync(() => _rcon!.BroadcastAsync(msg, TimeSpan.FromSeconds(8)));
+    }
+
+    private async void OnRconKick(object? sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(RconPlayerIdTextBox.Text.Trim(), out var id))
+        {
+            AppendRconOutput("Invalid player id.");
+            return;
+        }
+        var reason = RconReasonTextBox.Text?.Trim();
+        await RunRconCommandAsync(() => _rcon!.KickAsync(id, reason, TimeSpan.FromSeconds(8)));
+    }
+
+    private async void OnRconBan(object? sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(RconPlayerIdTextBox.Text.Trim(), out var id))
+        {
+            AppendRconOutput("Invalid player id.");
+            return;
+        }
+        var minutes = int.TryParse(RconBanMinutesTextBox.Text.Trim(), out var m) ? m : 0;
+        var reason = RconReasonTextBox.Text?.Trim();
+        await RunRconCommandAsync(() => _rcon!.BanAsync(id, minutes, reason, TimeSpan.FromSeconds(8)));
     }
 
     private void UpdateServerModeVisibility()
@@ -1176,6 +1620,120 @@ public partial class MainWindow : Window
     }
 
     private void OnServerModeChanged(object? sender, RoutedEventArgs e) => UpdateServerModeVisibility();
+
+    // ---- Server profiles (multiple named launch configs, one active at a time) ----
+
+    private AppConfigStore.ServerProfileEntry? SelectedServerProfile =>
+        ServerProfileComboBox.SelectedItem as AppConfigStore.ServerProfileEntry;
+
+    private async void OnServerProfileSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressServerProfileSelection) return;
+        var profile = SelectedServerProfile;
+        if (profile == null) return;
+
+        if (_server != null && (_server.State == ServerState.Running || _server.State == ServerState.Starting))
+        {
+            await MsgBox.Info(this, "Stop the running server before switching profiles.", "Server profiles");
+            _suppressServerProfileSelection = true;
+            ServerProfileComboBox.SelectedItem = e.RemovedItems.Count > 0 ? e.RemovedItems[0] : profile;
+            _suppressServerProfileSelection = false;
+            return;
+        }
+
+        HydrateServerUiFromConfig(profile.Server);
+        ApplyServerConfigToController(profile.Server);
+        UpdateServerModeVisibility();
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = profile.Id;
+        AppConfigStore.Save(store);
+    }
+
+    private void OnAddServerProfile(object? sender, RoutedEventArgs e)
+    {
+        var name = (ServerProfileNameTextBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name)) name = $"Profile {_serverProfiles.Count + 1}";
+
+        var entry = new AppConfigStore.ServerProfileEntry { Name = name, Server = new ServerConfig() };
+        _serverProfiles.Add(entry);
+
+        _suppressServerProfileSelection = true;
+        ServerProfileComboBox.SelectedItem = entry;
+        _suppressServerProfileSelection = false;
+
+        HydrateServerUiFromConfig(entry.Server);
+        UpdateServerModeVisibility();
+        ServerProfileNameTextBox.Text = string.Empty;
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = entry.Id;
+        AppConfigStore.Save(store);
+    }
+
+    private async void OnRenameServerProfile(object? sender, RoutedEventArgs e)
+    {
+        var profile = SelectedServerProfile;
+        if (profile == null) return;
+        var name = (ServerProfileNameTextBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            await MsgBox.Info(this, "Enter a new name first.", "Rename profile");
+            return;
+        }
+
+        profile.Name = name;
+        _suppressServerProfileSelection = true;
+        // Force the ComboBox to re-render the bound Name.
+        var idx = _serverProfiles.IndexOf(profile);
+        if (idx >= 0) { _serverProfiles.RemoveAt(idx); _serverProfiles.Insert(idx, profile); }
+        ServerProfileComboBox.SelectedItem = profile;
+        _suppressServerProfileSelection = false;
+        ServerProfileNameTextBox.Text = string.Empty;
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = profile.Id;
+        AppConfigStore.Save(store);
+    }
+
+    private async void OnDeleteServerProfile(object? sender, RoutedEventArgs e)
+    {
+        var profile = SelectedServerProfile;
+        if (profile == null) return;
+
+        if (_serverProfiles.Count <= 1)
+        {
+            await MsgBox.Info(this, "At least one server profile must remain.", "Delete profile");
+            return;
+        }
+
+        if (_server != null && (_server.State == ServerState.Running || _server.State == ServerState.Starting))
+        {
+            await MsgBox.Info(this, "Stop the running server before deleting profiles.", "Delete profile");
+            return;
+        }
+
+        if (!await MsgBox.Confirm(this, $"Delete profile \"{profile.Name}\"?", "Delete profile")) return;
+
+        _serverProfiles.Remove(profile);
+        var next = _serverProfiles[0];
+
+        _suppressServerProfileSelection = true;
+        ServerProfileComboBox.SelectedItem = next;
+        _suppressServerProfileSelection = false;
+
+        HydrateServerUiFromConfig(next.Server);
+        ApplyServerConfigToController(next.Server);
+        UpdateServerModeVisibility();
+
+        var store = AppConfigStore.Load();
+        store.ServerProfiles = _serverProfiles.ToList();
+        store.ActiveServerProfileId = next.Id;
+        AppConfigStore.Save(store);
+    }
 
     private void UpdateServerButtonsForState(ServerState s)
     {
@@ -1365,6 +1923,8 @@ public partial class MainWindow : Window
         ServerActionStatusText.Text = "preparing…";
         ServerStartButton.IsEnabled = false;
 
+        SyncBattlEyeRconCfgIfEnabled(cfg);
+
         try
         {
             var deployed = new List<string>();
@@ -1437,6 +1997,7 @@ public partial class MainWindow : Window
         if (_server == null) return;
         var cfg = ReadServerConfigFromUi();
         ApplyServerConfigToController(cfg);
+        SyncBattlEyeRconCfgIfEnabled(cfg);
         try
         {
             ServerActionStatusText.Text = "restarting…";
@@ -1447,6 +2008,8 @@ public partial class MainWindow : Window
                 cfg.Ps1LaunchParam, cfg.Ps1AppBranch, deployedServer);
             await _server.RestartAsync(spec);
             ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
+            if (cfg.NotifyOnRestart)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, $"🔄 DayZ server restarted ({ServerActionStatusText.Text}).");
         }
         catch (Exception ex) { ServerActionStatusText.Text = ex.Message; }
         finally { UpdateServerButtonsForState(_server.State); }
@@ -1470,7 +2033,13 @@ public partial class MainWindow : Window
             else
             {
                 ok = await RunSteamCmdUpdateAsync(cfg);
-                if (ok) { DeployMods(cfg); ServerActionStatusText.Text = "mods updated"; }
+                if (ok)
+                {
+                    DeployMods(cfg);
+                    ServerActionStatusText.Text = "mods updated";
+                    if (cfg.NotifyOnModUpdate)
+                        _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, "📦 DayZ server mods updated.");
+                }
                 else ServerActionStatusText.Text = "update failed";
             }
         }
@@ -1637,6 +2206,8 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(cfg.ServerRootDir)) { AppendLogLine("[manager] server root dir not set — skipping deploy."); return empty; }
         if (string.IsNullOrWhiteSpace(cfg.SteamCmdPath)) { AppendLogLine("[manager] steamcmd.exe path not set — skipping deploy."); return empty; }
 
+        LogModConflictsIfAny();
+
         string workshopRoot;
         try { workshopRoot = SteamCmdInstallRoot(cfg); }
         catch (Exception ex) { AppendLogLine($"[manager] {ex.Message}"); return empty; }
@@ -1647,6 +2218,7 @@ public partial class MainWindow : Window
         {
             var result = SteamCmdClient.DeployMods(workshopRoot, cfg.WorkshopAppId, ids, cfg.ServerRootDir!, cfg.DeployMode);
             names = result.Select(r => r.AtName).ToList();
+            ModDeployStateStore.RecordDeployed(result.Select(r => r.Id), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             ServerHistoryLogger.Append("mods-deployed", cfg.Mode.ToString(), detail: $"count={names.Count} mode={cfg.DeployMode}");
             AppendLogLine($"[manager] deployed {names.Count} mods to {cfg.ServerRootDir}");
         }

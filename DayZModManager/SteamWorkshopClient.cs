@@ -76,6 +76,74 @@ internal static class SteamWorkshopClient
         }).ToList();
     }
 
+    /// <summary>
+    /// Batch variant of <see cref="GetPublishedFileDetailsAsync"/> - fetches details (including
+    /// <c>time_updated</c>, used for update detection) for many mods in as few requests as
+    /// possible. Chunked defensively so very large mod lists don't produce one giant request.
+    /// </summary>
+    public static async Task<Dictionary<ulong, PublishedFileDetailsResponseItem>> GetPublishedFileDetailsBatchAsync(
+        IReadOnlyList<ulong> publishedFileIds, string? authKey)
+    {
+        var result = new Dictionary<ulong, PublishedFileDetailsResponseItem>();
+        const int chunkSize = 100;
+
+        for (var offset = 0; offset < publishedFileIds.Count; offset += chunkSize)
+        {
+            var chunk = publishedFileIds.Skip(offset).Take(chunkSize).ToList();
+            var url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/";
+
+            var form = new Dictionary<string, string> { ["itemcount"] = chunk.Count.ToString() };
+            for (var i = 0; i < chunk.Count; i++)
+                form[$"publishedfileids[{i}]"] = chunk[i].ToString();
+            if (!string.IsNullOrWhiteSpace(authKey))
+                form["key"] = authKey;
+
+            using var content = new FormUrlEncodedContent(form);
+            using var resp = await Http.PostAsync(url, content);
+            resp.EnsureSuccessStatusCode();
+
+            await using var stream = await resp.Content.ReadAsStreamAsync();
+            var payload = await JsonSerializer.DeserializeAsync<GetPublishedFileDetailsResponse>(stream, JsonOptions);
+
+            foreach (var item in payload?.Response?.PublishedFileDetails ?? new List<PublishedFileDetailsResponseItem>())
+            {
+                if (ulong.TryParse(item.PublishedFileId, out var id))
+                    result[id] = item;
+            }
+        }
+
+        return result;
+    }
+
+    public static async Task<List<ulong>> GetCollectionChildrenAsync(ulong collectionId, string? authKey)
+    {
+        // ISteamRemoteStorage/GetCollectionDetails returns every item directly inside a Workshop
+        // Collection (not their dependencies - callers should still run those through the normal
+        // dependency-closure resolver).
+        var url = "https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/";
+
+        var form = new Dictionary<string, string>
+        {
+            ["collectioncount"] = "1",
+            ["publishedfileids[0]"] = collectionId.ToString()
+        };
+
+        if (!string.IsNullOrWhiteSpace(authKey))
+            form["key"] = authKey;
+
+        using var content = new FormUrlEncodedContent(form);
+
+        using var resp = await Http.PostAsync(url, content);
+        resp.EnsureSuccessStatusCode();
+
+        await using var stream = await resp.Content.ReadAsStreamAsync();
+        var payload = await JsonSerializer.DeserializeAsync<GetCollectionDetailsResponse>(stream, JsonOptions);
+
+        var details = payload?.Response?.CollectionDetails?.FirstOrDefault();
+        var children = details?.Children ?? new List<PublishedFileChild>();
+        return children.Select(c => c.PublishedFileId).ToList();
+    }
+
     public static async Task<List<ulong>> GetChildrenPublishedFileIdsAsync(ulong publishedFileId, string apiKey)
     {
         // IPublishedFileService/GetDetails with includechildren=true returns dependency tree nodes in "children".
@@ -96,6 +164,24 @@ internal static class SteamWorkshopClient
         var children = details?.Children ?? new List<PublishedFileChild>();
         return children.Select(c => c.PublishedFileId).ToList();
     }
+}
+
+internal sealed class GetCollectionDetailsResponse
+{
+    [JsonPropertyName("response")]
+    public GetCollectionDetailsResponseInner? Response { get; init; }
+}
+
+internal sealed class GetCollectionDetailsResponseInner
+{
+    [JsonPropertyName("collectiondetails")]
+    public List<CollectionDetailsResponseItem>? CollectionDetails { get; init; }
+}
+
+internal sealed class CollectionDetailsResponseItem
+{
+    [JsonPropertyName("children")]
+    public List<PublishedFileChild>? Children { get; init; }
 }
 
 internal sealed class GetDetailsResponse
@@ -168,4 +254,8 @@ internal sealed class PublishedFileDetailsResponseItem
 
     [JsonPropertyName("title")]
     public string? Title { get; init; }
+
+    /// <summary>Unix timestamp of the item's last Workshop publish/update.</summary>
+    [JsonPropertyName("time_updated")]
+    public long? TimeUpdated { get; init; }
 }
