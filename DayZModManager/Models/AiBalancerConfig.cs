@@ -20,4 +20,11 @@ public class AiBalancerConfig
     public string MissionPath { get; set; } = string.Empty;
     public bool BackupBeforeApply { get; set; } = true;
     public bool AutoStartListener { get; set; }
+
+    /// <summary>
+    /// Off by default: lets the MCP server's apply_balance/apply_task tools actually write to
+    /// server files. propose_balance/plan_task always work regardless (propose-only, no writes).
+    /// An external AI client can only apply changes once the user opts in here.
+    /// </summary>
+    public bool McpApplyEnabled { get; set; }
 }

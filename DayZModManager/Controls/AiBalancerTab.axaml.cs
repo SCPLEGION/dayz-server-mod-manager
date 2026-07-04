@@ -110,6 +110,7 @@ public partial class AiBalancerTab : UserControl
         ServerRootPathBox.Text = cfg.ServerRootPath ?? string.Empty;
         MissionPathBox.Text = cfg.MissionPath ?? string.Empty;
         BackupCheck.IsChecked = cfg.BackupBeforeApply;
+        McpApplyEnabledCheck.IsChecked = cfg.McpApplyEnabled;
     }
 
     private static void SelectComboByText(ComboBox combo, string? text)
@@ -150,6 +151,7 @@ public partial class AiBalancerTab : UserControl
             MissionPath = MissionPathBox.Text?.Trim() ?? string.Empty,
             BackupBeforeApply = BackupCheck.IsChecked ?? true,
             AutoStartListener = _cfg.AutoStartListener,
+            McpApplyEnabled = McpApplyEnabledCheck.IsChecked ?? false,
         };
     }
 
