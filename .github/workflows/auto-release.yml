@@ -13,7 +13,8 @@ name: Auto Release
 # (feat: -> minor, BREAKING CHANGE/!: -> major, anything else -> patch), or
 # can be forced via workflow_dispatch.
 #
-# Add "[skip release]" to a commit message on main to skip tagging it.
+# Add "[skip release]" to any commit message in a push to main to skip
+# auto-tagging that push (manual workflow_dispatch runs always run).
 
 on:
   push:
@@ -29,11 +30,17 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   tag:
     name: Compute next version and tag
     runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      !contains(join(github.event.commits.*.message, '\n'), '[skip release]')
 
     steps:
       - name: Checkout
@@ -50,7 +57,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          tag="${{ steps.ver.outputs.version }}"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists on origin, skipping."
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.ver.outputs.version }}" -m "${{ steps.ver.outputs.channel }} release ${{ steps.ver.outputs.version }}"
-          git push origin "${{ steps.ver.outputs.version }}"
+          git tag -a "$tag" -m "${{ steps.ver.outputs.channel }} release $tag"
+          git push origin "$tag"

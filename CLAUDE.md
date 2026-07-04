@@ -22,7 +22,7 @@ There are no automated tests in this repository. CI (`.github/workflows/ci.yml`)
 
 ## Releases & versioning
 
-`.github/workflows/auto-release.yml` tags every push to `main` with the next `vX.Y.Z` version (`scripts/compute-next-version.ps1`) and pushes the tag. That tag push triggers `ci.yml`, which builds, packs, and publishes a GitHub Release. The bump type is auto-detected from commit messages since the last tag (`feat:` → minor, `BREAKING CHANGE`/`!:` → major, anything else → patch), or can be forced via `workflow_dispatch`. Add `[skip release]` to a commit message on `main` to skip tagging it.
+`.github/workflows/auto-release.yml` tags every push to `main` with the next `vX.Y.Z` version (`scripts/compute-next-version.ps1`) and pushes the tag. That tag push triggers `ci.yml`, which builds, packs, and publishes a GitHub Release. The bump type is auto-detected from commit messages since the last tag (`feat:` → minor, `BREAKING CHANGE`/`!:` → major, anything else → patch), or can be forced via `workflow_dispatch`. Add `[skip release]` to any commit message in a push to `main` to skip auto-tagging that push (manual `workflow_dispatch` runs are unaffected by this marker).
 
 The version shape itself is the release channel:
 

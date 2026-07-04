@@ -36,8 +36,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ---- Find the latest vX.Y.Z tag ----
-$tags = git tag -l 'v*' | Where-Object { $_ -match '^v(\d+)\.(\d+)\.(\d+)$' }
+# ---- Find the latest vX.Y.Z tag reachable from HEAD ----
+# `--merged HEAD` restricts to tags whose commit is an ancestor of HEAD, so a
+# tag pushed on some other branch can't be picked up as "latest" here.
+$tags = git tag --merged HEAD -l 'v*' | Where-Object { $_ -match '^v(\d+)\.(\d+)\.(\d+)$' }
 
 $latest = $null
 $major = 0
