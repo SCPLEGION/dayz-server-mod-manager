@@ -133,4 +133,19 @@ public sealed class ServerConfig
 
     [JsonPropertyName("notifyOnModUpdate")]
     public bool NotifyOnModUpdate { get; set; }
+
+    // ---- Scheduling (only runs while this app's GUI process is alive - not an OS-level cron) ----
+
+    [JsonPropertyName("scheduledRestartEnabled")]
+    public bool ScheduledRestartEnabled { get; set; }
+
+    /// <summary>Local time of day, "HH:mm", the server restarts at when <see cref="ScheduledRestartEnabled"/>.</summary>
+    [JsonPropertyName("scheduledRestartTimeOfDay")]
+    public string ScheduledRestartTimeOfDay { get; set; } = "04:00";
+
+    [JsonPropertyName("scheduledUpdateCheckEnabled")]
+    public bool ScheduledUpdateCheckEnabled { get; set; }
+
+    [JsonPropertyName("scheduledUpdateIntervalHours")]
+    public double ScheduledUpdateIntervalHours { get; set; } = 6;
 }

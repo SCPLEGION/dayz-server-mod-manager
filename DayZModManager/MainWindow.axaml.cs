@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private readonly HashSet<ulong> _modsWithUpdateAvailable = new();
 
     private ServerProcessController? _server;
+    private ServerScheduleService? _schedule;
     private ServerConfig? _lastAppliedServerConfig;
     private readonly ObservableCollection<AppConfigStore.ServerProfileEntry> _serverProfiles = new();
     private bool _suppressServerProfileSelection;
@@ -109,6 +110,7 @@ public partial class MainWindow : Window
 
             HydrateServerUiFromConfig(activeProfile.Server);
             InitServerController();
+            ApplyScheduleConfig(activeProfile.Server);
             UpdateServerModeVisibility();
             UpdateServerButtonsForState(ServerState.Stopped);
 
@@ -129,6 +131,7 @@ public partial class MainWindow : Window
         try { PersistAllDirsToConfig(); } catch { }
         try { _tail?.Dispose(); } catch { }
         try { _server?.Detach(); } catch { }
+        try { _schedule?.Dispose(); } catch { }
     }
 
     private void OnTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -1279,6 +1282,11 @@ public partial class MainWindow : Window
         NotifyOnCrashCheckBox.IsChecked = cfg.NotifyOnCrash;
         NotifyOnRestartCheckBox.IsChecked = cfg.NotifyOnRestart;
         NotifyOnModUpdateCheckBox.IsChecked = cfg.NotifyOnModUpdate;
+        ScheduledRestartCheckBox.IsChecked = cfg.ScheduledRestartEnabled;
+        ScheduledRestartTimeTextBox.Text = string.IsNullOrWhiteSpace(cfg.ScheduledRestartTimeOfDay) ? "04:00" : cfg.ScheduledRestartTimeOfDay;
+        ScheduledUpdateCheckCheckBox.IsChecked = cfg.ScheduledUpdateCheckEnabled;
+        ScheduledUpdateIntervalTextBox.Text = cfg.ScheduledUpdateIntervalHours > 0 ? cfg.ScheduledUpdateIntervalHours.ToString() : "6";
+        ApplyScheduleConfig(cfg);
     }
 
     private ServerConfig ReadServerConfigFromUi()
@@ -1320,8 +1328,20 @@ public partial class MainWindow : Window
             WebhookUrl = NullIfEmpty(WebhookUrlTextBox.Text),
             NotifyOnCrash = NotifyOnCrashCheckBox.IsChecked == true,
             NotifyOnRestart = NotifyOnRestartCheckBox.IsChecked == true,
-            NotifyOnModUpdate = NotifyOnModUpdateCheckBox.IsChecked == true
+            NotifyOnModUpdate = NotifyOnModUpdateCheckBox.IsChecked == true,
+            ScheduledRestartEnabled = ScheduledRestartCheckBox.IsChecked == true,
+            ScheduledRestartTimeOfDay = ParseScheduleTimeOfDayOrDefault(ScheduledRestartTimeTextBox.Text),
+            ScheduledUpdateCheckEnabled = ScheduledUpdateCheckCheckBox.IsChecked == true,
+            ScheduledUpdateIntervalHours = double.TryParse(ScheduledUpdateIntervalTextBox.Text.Trim(), out var hrs) && hrs > 0 ? hrs : 6
         };
+    }
+
+    private static string ParseScheduleTimeOfDayOrDefault(string? text)
+    {
+        var trimmed = (text ?? string.Empty).Trim();
+        return TimeSpan.TryParseExact(trimmed, "hh\\:mm", System.Globalization.CultureInfo.InvariantCulture, out _)
+            ? trimmed
+            : "04:00";
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
@@ -1343,6 +1363,89 @@ public partial class MainWindow : Window
             if (crashed && _lastAppliedServerConfig is { NotifyOnCrash: true } cfg)
                 _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, $"⚠️ DayZ server crashed (exit code {code}).");
         });
+
+        _schedule = new ServerScheduleService();
+        _schedule.RestartDue += () => Dispatcher.UIThread.InvokeAsync(() => { _ = OnScheduledRestartDueAsync(); });
+        _schedule.UpdateCheckDue += () => Dispatcher.UIThread.InvokeAsync(() => { _ = OnScheduledUpdateCheckDueAsync(); });
+    }
+
+    private async Task OnScheduledRestartDueAsync()
+    {
+        if (_server == null || _server.State != ServerState.Running) return;
+        try
+        {
+            var cfg = ReadServerConfigFromUi();
+            ApplyServerConfigToController(cfg);
+            ServerHistoryLogger.Append("scheduled-restart", cfg.Mode.ToString());
+            AppendLogLine("[manager] scheduled restart firing…");
+
+            var (deployed, deployedServer) = cfg.Mode == ServerLaunchMode.DirectExe
+                ? DeployMods(cfg) : (new List<string>(), new List<string>());
+            var spec = new ServerLaunchSpec(cfg.Mode, cfg.Ps1Path, cfg.ExePath, cfg.ProfileDir,
+                cfg.ServerRootDir, cfg.Port, cfg.ExtraArgs, cfg.BattlEye, deployed,
+                cfg.Ps1LaunchParam, cfg.Ps1AppBranch, deployedServer);
+            await _server.RestartAsync(spec);
+            ServerActionStatusText.Text = _server.State == ServerState.Running ? "running" : "restart failed";
+            UpdateServerButtonsForState(_server.State);
+
+            if (cfg.NotifyOnRestart)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, "🔄 DayZ server scheduled restart complete.");
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] scheduled restart failed: {ex.Message}");
+            ServerHistoryLogger.Append("scheduled-restart-failed", "?", detail: ex.Message);
+        }
+    }
+
+    private async Task OnScheduledUpdateCheckDueAsync()
+    {
+        var cfg = ReadServerConfigFromUi();
+        if (cfg.Mode != ServerLaunchMode.DirectExe) return; // SteamCMD update path only applies here
+
+        try
+        {
+            AppendLogLine("[manager] scheduled mod-update check running…");
+            var ids = ModStorage.LoadIds(CurrentModsTxtPath()).ToList();
+            if (ids.Count == 0) return;
+
+            var apiKey = SearchApiKeyTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = BakedSteamWebApiKey;
+
+            var details = await SteamWorkshopClient.GetPublishedFileDetailsBatchAsync(ids, apiKey);
+            var deployState = ModDeployStateStore.LoadAll();
+            var pending = ids.Count(id =>
+                details.TryGetValue(id, out var d) && d.TimeUpdated is long updated &&
+                deployState.TryGetValue(id, out var deployedAt) && updated > deployedAt);
+
+            if (pending == 0)
+            {
+                AppendLogLine("[manager] scheduled check: no mod updates found.");
+                return;
+            }
+
+            AppendLogLine($"[manager] scheduled check: {pending} mod(s) updated — downloading via SteamCMD…");
+            var ok = await RunSteamCmdUpdateAsync(cfg);
+            if (!ok)
+            {
+                AppendLogLine("[manager] scheduled mod update failed.");
+                ServerHistoryLogger.Append("scheduled-update-failed", cfg.Mode.ToString());
+                return;
+            }
+
+            DeployMods(cfg);
+            ServerHistoryLogger.Append("scheduled-update-done", cfg.Mode.ToString(), detail: $"pending={pending}");
+            if (cfg.NotifyOnModUpdate)
+                _ = WebhookNotifier.NotifyAsync(cfg.WebhookUrl, $"📦 Scheduled check found and deployed {pending} mod update(s).");
+
+            if (_server != null && _server.State == ServerState.Running)
+                await OnScheduledRestartDueAsync();
+        }
+        catch (Exception ex)
+        {
+            AppendLogLine($"[manager] scheduled mod-update check failed: {ex.Message}");
+            ServerHistoryLogger.Append("scheduled-update-failed", cfg.Mode.ToString(), detail: ex.Message);
+        }
     }
 
     private void ApplyServerConfigToController(ServerConfig? cfg)
@@ -1352,6 +1455,17 @@ public partial class MainWindow : Window
         _server.AutoRestartOnCrash = cfg.AutoRestartOnCrash;
         _server.AutoRestartBackoffSeconds = cfg.AutoRestartBackoffSeconds;
         _server.AutoRestartMaxRetries = cfg.AutoRestartMaxRetries;
+        ApplyScheduleConfig(cfg);
+    }
+
+    private void ApplyScheduleConfig(ServerConfig cfg)
+    {
+        if (_schedule == null) return;
+        _schedule.RestartEnabled = cfg.ScheduledRestartEnabled;
+        _schedule.RestartTimeOfDay = TimeSpan.TryParseExact(cfg.ScheduledRestartTimeOfDay, "hh\\:mm",
+            System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : new TimeSpan(4, 0, 0);
+        _schedule.UpdateCheckEnabled = cfg.ScheduledUpdateCheckEnabled;
+        _schedule.UpdateCheckIntervalHours = cfg.ScheduledUpdateIntervalHours > 0 ? cfg.ScheduledUpdateIntervalHours : 6;
     }
 
     private void UpdateServerModeVisibility()

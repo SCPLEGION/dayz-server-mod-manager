@@ -954,6 +954,36 @@
 
                             <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
                                 <StackPanel>
+                                    <TextBlock Text="// SCHEDULING (WHILE APP IS RUNNING)" Classes="SectionLabel" Margin="0,0,0,6"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="70"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="ScheduledRestartCheckBox" Content="restart daily at"/>
+                                        <TextBox Grid.Column="2" x:Name="ScheduledRestartTimeTextBox" Text="04:00" Width="70"/>
+                                    </Grid>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox Grid.Column="0" x:Name="ScheduledUpdateCheckCheckBox" Content="check mods for updates every"/>
+                                        <TextBox Grid.Column="2" x:Name="ScheduledUpdateIntervalTextBox" Text="6" Width="60"/>
+                                        <TextBlock Grid.Column="4" Text="hours" Foreground="{StaticResource Muted}"
+                                                   FontSize="10" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,8,0,0">
+                                <StackPanel>
                                     <TextBlock Text="// NOTIFICATIONS (WEBHOOK)" Classes="SectionLabel" Margin="0,0,0,6"/>
                                     <TextBox x:Name="WebhookUrlTextBox" Watermark="Discord webhook URL"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
