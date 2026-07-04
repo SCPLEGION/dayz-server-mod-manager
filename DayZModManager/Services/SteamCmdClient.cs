@@ -14,6 +14,13 @@ internal sealed record DeployedMod(ulong Id, string AtName, string SourcePath);
 
 internal sealed class SteamCmdClient
 {
+    /// <summary>
+    /// Steam App ID for the DayZ Dedicated Server itself - distinct from
+    /// <see cref="ServerConfig.WorkshopAppId"/> (221100, the game's appid used for workshop
+    /// mod downloads). Don't conflate the two.
+    /// </summary>
+    public const uint DayZDedicatedServerAppId = 223350;
+
     private readonly string _steamCmdPath;
 
     public SteamCmdClient(string steamCmdPath)
@@ -56,16 +63,56 @@ internal sealed class SteamCmdClient
     /// task (yielded via the sentinel pattern) by reading until the enumerable completes; the exit
     /// code is appended as the final yielded line with the prefix "__EXIT__:".
     /// </summary>
-    public async IAsyncEnumerable<string> DownloadModsStreamedAsync(
+    public IAsyncEnumerable<string> DownloadModsStreamedAsync(
         IEnumerable<ulong> ids,
         uint appId,
         string cacheDir,
         string login,
         bool validate,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var args = BuildArgs(ids, appId, cacheDir, login, validate);
+        CancellationToken ct = default)
+        => RunStreamedAsync(BuildArgs(ids, appId, cacheDir, login, validate), ct);
 
+    /// <summary>
+    /// Runs SteamCMD in a visible console window with NO stdin/stdout redirection. The user types
+    /// password and Steam Guard code in the SteamCMD console themselves; this app never sees them.
+    /// Returns the process exit code.
+    /// </summary>
+    public Task<int> DownloadModsInteractiveAsync(
+        IEnumerable<ulong> ids,
+        uint appId,
+        string cacheDir,
+        string login,
+        bool validate,
+        CancellationToken ct = default)
+        => RunInteractiveAsync(BuildArgs(ids, appId, cacheDir, login, validate), ct);
+
+    /// <summary>
+    /// Installs/updates a whole Steam app (e.g. the DayZ Dedicated Server itself, see
+    /// <see cref="DayZDedicatedServerAppId"/>) via <c>+app_update</c>, streamed the same way
+    /// <see cref="DownloadModsStreamedAsync"/> streams mod downloads.
+    /// </summary>
+    public IAsyncEnumerable<string> DownloadAppStreamedAsync(
+        uint appId, string installDir, string login, bool validate, CancellationToken ct = default)
+        => RunStreamedAsync(BuildAppUpdateArgs(appId, installDir, login, validate), ct);
+
+    /// <summary>
+    /// Same as <see cref="DownloadModsInteractiveAsync"/> but installs/updates the app itself
+    /// (e.g. <see cref="DayZDedicatedServerAppId"/>) via <c>+app_update</c> - a real visible
+    /// console window; this app process never sees the password.
+    /// </summary>
+    public Task<int> DownloadAppInteractiveAsync(
+        uint appId, string installDir, string login, bool validate, CancellationToken ct = default)
+        => RunInteractiveAsync(BuildAppUpdateArgs(appId, installDir, login, validate), ct);
+
+    /// <summary>
+    /// A freshly-extracted steamcmd.exe always self-updates on its first run before anything
+    /// else will work. Run this once right after bootstrapping, before using it for real work.
+    /// </summary>
+    public IAsyncEnumerable<string> RunSelfUpdateAsync(CancellationToken ct = default)
+        => RunStreamedAsync("+quit", ct);
+
+    private async IAsyncEnumerable<string> RunStreamedAsync(string args, [EnumeratorCancellation] CancellationToken ct = default)
+    {
         var psi = new ProcessStartInfo
         {
             FileName = _steamCmdPath,
@@ -111,22 +158,11 @@ internal sealed class SteamCmdClient
         yield return $"__EXIT__:{proc.ExitCode}";
     }
 
-    /// <summary>
-    /// Runs SteamCMD in a visible console window with NO stdin/stdout redirection. The user types
-    /// password and Steam Guard code in the SteamCMD console themselves; this app never sees them.
-    /// Returns the process exit code.
-    /// </summary>
-    public async Task<int> DownloadModsInteractiveAsync(
-        IEnumerable<ulong> ids,
-        uint appId,
-        string cacheDir,
-        string login,
-        bool validate,
-        CancellationToken ct = default)
+    private async Task<int> RunInteractiveAsync(string args, CancellationToken ct = default)
     {
-        var args = BuildArgs(ids, appId, cacheDir, login, validate);
-
-        // UseShellExecute=true gives the user a real console window they can type into.
+        // UseShellExecute=true gives the user a real console window they can type into. This
+        // must stay a mechanical copy of that invariant - never redirect stdio here, that's what
+        // guarantees this process never sees the Steam password.
         var psi = new ProcessStartInfo
         {
             FileName = _steamCmdPath,
@@ -160,6 +196,17 @@ internal sealed class SteamCmdClient
             sb.Append(" +workshop_download_item ").Append(appId).Append(' ').Append(id);
             if (validate) sb.Append(" validate");
         }
+        sb.Append(" +quit");
+        return sb.ToString();
+    }
+
+    private static string BuildAppUpdateArgs(uint appId, string installDir, string login, bool validate)
+    {
+        var sb = new StringBuilder();
+        sb.Append("+force_install_dir ").Append(Quote(installDir));
+        sb.Append(" +login ").Append(string.IsNullOrWhiteSpace(login) ? "anonymous" : login);
+        sb.Append(" +app_update ").Append(appId);
+        if (validate) sb.Append(" validate");
         sb.Append(" +quit");
         return sb.ToString();
     }

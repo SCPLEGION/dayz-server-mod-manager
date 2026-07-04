@@ -15,6 +15,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using DayZModManager.Controls;
 using DayZModManager.Helpers;
 using DayZModManager.Services;
 
@@ -1733,6 +1734,31 @@ public partial class MainWindow : Window
         store.ServerProfiles = _serverProfiles.ToList();
         store.ActiveServerProfileId = next.Id;
         AppConfigStore.Save(store);
+    }
+
+    private async void OnOpenSetupWizard(object? sender, RoutedEventArgs e)
+    {
+        var profile = SelectedServerProfile;
+        var existing = profile?.Server ?? ReadServerConfigFromUi();
+
+        var dlg = new SetupWizardWindow(existing);
+        await dlg.ShowDialog(this);
+        if (dlg.Result == null) return;
+
+        // Merge only the fields the wizard governs into the same live profile object, so
+        // unrelated settings (RCON password, webhook URL, schedule config, ...) are preserved.
+        var cfg = profile?.Server ?? existing;
+        cfg.ExePath = dlg.Result.ExePath;
+        cfg.ServerRootDir = dlg.Result.ServerRootDir;
+        cfg.SteamCmdPath = dlg.Result.SteamCmdPath;
+        cfg.ModCacheDir = dlg.Result.ModCacheDir;
+        cfg.SteamLogin = dlg.Result.SteamLogin;
+        cfg.LoginMode = dlg.Result.LoginMode;
+
+        HydrateServerUiFromConfig(cfg);
+        ApplyServerConfigToController(cfg);
+        UpdateServerModeVisibility();
+        PersistAllDirsToConfig();
     }
 
     private void UpdateServerButtonsForState(ServerState s)
